@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Line.OpenApi.Messaging" Version="0.2.0-preview" />
+    <PackageReference Include="Line.OpenApi.Messaging.Webhook" Version="0.2.0-preview" />
+    <PackageReference Include="Line.OpenApi.MiniApp" Version="0.2.0-preview" />
+  </ItemGroup>
+
+</Project>

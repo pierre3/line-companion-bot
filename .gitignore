@@ -1,0 +1,28 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+
+# Editor / IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Test results
+[Tt]est[Rr]esult*/
+*.trx
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Claude Code local personal settings (not shared). Agents/commands are tracked.
+.claude/settings.local.json
+
+# Session handoff memo: local-only, session-refresh scratch file (/handoff generates it).
+docs/SESSION-HANDOFF.md

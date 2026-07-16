@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LineCompanionBot/LineCompanionBot.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LineCompanionBot.Tests/LineCompanionBot.Tests.csproj" />
+  </Folder>
+</Solution>
