@@ -2,6 +2,7 @@ using Line.OpenApi.Messaging;
 using Line.OpenApi.Messaging.Generated.Api.Models;
 using Line.OpenApi.MiniApp;
 using Line.OpenApi.MiniApp.Models;
+using LineCompanionBot.Persistence;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -9,39 +10,29 @@ using Microsoft.Extensions.Logging;
 namespace LineCompanionBot.Services;
 
 // There is no push webhook for IAP events — GetWebhookEventsAsync must be polled. Idempotent by
-// design: InventoryStore.Grant/Revoke key off OrderId, so re-scanning an overlapping window after
+// design: IInventoryStore.Grant/Revoke key off OrderId, so re-scanning an overlapping window after
 // a restart can never double-grant or double-revoke.
 public sealed class PurchaseReconciliationService : BackgroundService
 {
     private readonly CompanionSettings _settings;
-    private readonly MiniAppClient _miniApp;
-    private readonly OrderStore _orders;
-    private readonly InventoryStore _inventory;
-    private readonly NotifierTokenStore _notifierTokens;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PurchaseReconciliationService> _logger;
     private long _watermarkEpochSeconds;
 
     public PurchaseReconciliationService(
         CompanionSettings settings,
-        MiniAppClient miniApp,
-        OrderStore orders,
-        InventoryStore inventory,
-        NotifierTokenStore notifierTokens,
-        IServiceProvider serviceProvider,
+        IServiceScopeFactory scopeFactory,
         ILogger<PurchaseReconciliationService> logger)
     {
         _settings = settings;
-        _miniApp = miniApp;
-        _orders = orders;
-        _inventory = inventory;
-        _notifierTokens = notifierTokens;
-        // MessagingClient is only registered in DI when LINE_CHANNEL_ACCESS_TOKEN is set (see
-        // Program.cs), which this service also requires to run at all — resolve it lazily via
-        // IServiceProvider inside the already-gated ExecuteAsync path instead of taking a direct
-        // constructor dependency, which the host would try (and fail) to resolve eagerly at
-        // startup even when the token is unset.
-        _serviceProvider = serviceProvider;
+        // Stores are resolved per-poll from a fresh DI scope (see PollOnceAsync) rather than taken
+        // as direct constructor dependencies: this BackgroundService is a Singleton for the
+        // process lifetime, but the I*Store implementations only happen to be Singleton today
+        // (in-memory). A future RDB-backed store would typically be Scoped (per-request/per-unit-
+        // of-work DbContext), and a Singleton can't hold a Scoped dependency directly (the
+        // "captive dependency" problem) — resolving via scope here means that swap needs no change
+        // in this class.
+        _scopeFactory = scopeFactory;
         _logger = logger;
         // Only purchases made from this point on are polled for — a fresh demo process has no
         // reason to re-scan the full 7-day history on every restart.
@@ -56,14 +47,12 @@ public sealed class PurchaseReconciliationService : BackgroundService
             return;
         }
 
-        var messaging = _serviceProvider.GetRequiredService<MessagingClient>();
-
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(_settings.PollSeconds));
         do
         {
             try
             {
-                await PollOnceAsync(messaging, stoppingToken);
+                await PollOnceAsync(stoppingToken);
             }
             catch (Exception ex)
             {
@@ -78,8 +67,16 @@ public sealed class PurchaseReconciliationService : BackgroundService
     // costs nothing (Grant/Revoke are idempotent by OrderId) but closes that gap.
     private const int TrailingBufferSeconds = 5;
 
-    private async Task PollOnceAsync(MessagingClient messaging, CancellationToken ct)
+    private async Task PollOnceAsync(CancellationToken ct)
     {
+        using var scope = _scopeFactory.CreateScope();
+        var services = scope.ServiceProvider;
+        var miniApp = services.GetRequiredService<MiniAppClient>();
+        var messaging = services.GetRequiredService<MessagingClient>();
+        var orders = services.GetRequiredService<IOrderStore>();
+        var inventory = services.GetRequiredService<IInventoryStore>();
+        var notifierTokens = services.GetRequiredService<INotifierTokenStore>();
+
         var start = _watermarkEpochSeconds;
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - TrailingBufferSeconds;
         string? cursor = null;
@@ -88,7 +85,7 @@ public sealed class PurchaseReconciliationService : BackgroundService
         // per-event would risk silently skipping the rest of a page if this loop is interrupted.
         do
         {
-            var page = await _miniApp.GetWebhookEventsAsync(
+            var page = await miniApp.GetWebhookEventsAsync(
                 _settings.ChannelAccessToken!, start, now, pageSize: 50, cursor: cursor, status: "SUCCESS", ct);
 
             foreach (var entry in page?.Events ?? new())
@@ -101,7 +98,8 @@ public sealed class PurchaseReconciliationService : BackgroundService
 
                 // Only act on orders this app itself reserved — other IAP activity on the same
                 // channel (if any) is none of this app's business.
-                if (!_orders.TryGet(ev.OrderId, out var order))
+                var order = await orders.TryGetAsync(ev.OrderId, ct);
+                if (order is null)
                 {
                     continue;
                 }
@@ -122,16 +120,16 @@ public sealed class PurchaseReconciliationService : BackgroundService
                 switch (ev.Type)
                 {
                     case "purchaseComplete":
-                        if (_inventory.Grant(userId, order.OrderId, order.ProductId))
+                        if (await inventory.GrantAsync(userId, order.OrderId, order.ProductId, ct))
                         {
                             _logger.LogInformation(
                                 "Granted {ProductId} to {UserId} (order {OrderId}).",
                                 order.ProductId, userId, order.OrderId);
-                            await NotifyPurchaseAsync(userId, order.ProductId, messaging, ct);
+                            await NotifyPurchaseAsync(userId, order.ProductId, miniApp, messaging, notifierTokens, ct);
                         }
                         break;
                     case "refundComplete":
-                        _inventory.Revoke(userId, order.OrderId);
+                        await inventory.RevokeAsync(userId, order.OrderId, ct);
                         break;
                 }
             }
@@ -148,21 +146,28 @@ public sealed class PurchaseReconciliationService : BackgroundService
     // endpoints' stateless-token requirement and the reviewed-template requirement are easy to
     // not have in a fresh demo environment, so this fallback is the default path in practice, not
     // an edge case.
-    private async Task NotifyPurchaseAsync(string userId, string productId, MessagingClient messaging, CancellationToken ct)
+    private async Task NotifyPurchaseAsync(
+        string userId,
+        string productId,
+        MiniAppClient miniApp,
+        MessagingClient messaging,
+        INotifierTokenStore notifierTokens,
+        CancellationToken ct)
     {
         var itemName = ShopCatalog.Find(productId)?.Name ?? productId;
 
-        if (_settings.TemplateName is not null && _notifierTokens.TryGet(userId, out var token) && token.NotificationToken is not null)
+        var token = _settings.TemplateName is not null ? await notifierTokens.TryGetAsync(userId, ct) : null;
+        if (token?.NotificationToken is not null)
         {
             // Only the send call itself gates the fallback — bookkeeping after a successful send
             // (saving the renewed token) must never cause a duplicate push if it were to fail.
             NotifierToken? renewed = null;
             try
             {
-                renewed = await _miniApp.SendServiceMessageAsync(
+                renewed = await miniApp.SendServiceMessageAsync(
                     _settings.ChannelAccessToken!,
                     token.NotificationToken,
-                    _settings.TemplateName,
+                    _settings.TemplateName!,
                     new Dictionary<string, string> { ["itemName"] = itemName },
                     ct);
             }
@@ -173,7 +178,7 @@ public sealed class PurchaseReconciliationService : BackgroundService
 
             if (renewed is not null)
             {
-                _notifierTokens.Save(userId, renewed);
+                await notifierTokens.SaveAsync(userId, renewed, ct);
                 return;
             }
         }

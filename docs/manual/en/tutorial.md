@@ -781,3 +781,49 @@ code, not new features:
   called out in `Program.cs` and the README rather than solved — validating it properly needs a
   real reverse-proxy setup this demo doesn't have, and the field is only an anti-fraud signal to
   LINE, not a security boundary of this app's own.
+
+## Persistence abstraction refactor
+
+A later pass reworked how the four in-memory stores (`PetStore`, `OrderStore`, `InventoryStore`,
+`NotifierTokenStore`) are exposed, so swapping the in-memory demo storage for a real database later
+is a DI registration change, not a rewrite:
+
+- **Each store is now behind an interface** (`IPetStore`, `IOrderStore`, `IInventoryStore`,
+  `INotifierTokenStore`) under `src/LineCompanionBot/Persistence/`, with every method **async-shaped**
+  (`Task`/`Task<T>`) even though the current `InMemory*` implementations never actually await
+  anything. This matters because an interface can't cheaply grow a `CancellationToken` or switch a
+  sync method to async later without touching every call site — shaping it for real I/O from the
+  start means an EF Core/Dapper-backed implementation drops in without changing any caller.
+- **One seam, not four.** `AddInMemoryPersistence()` (in
+  `Persistence/InMemory/PersistenceServiceCollectionExtensions.cs`) registers all four
+  implementations in a single call from `Program.cs`. A real deployment swaps that one line for,
+  e.g., `AddSqlPersistence(connectionString)` — every consumer depends on the `I*Store` interfaces,
+  never on the concrete `InMemory*` types.
+- **`PurchaseReconciliationService` no longer takes stores as constructor dependencies.** It's a
+  Singleton `BackgroundService` for the process's whole lifetime; the in-memory stores only happen
+  to be Singleton too today. An RDB-backed store would typically be registered Scoped (one
+  `DbContext` per unit of work), and a Singleton can't hold a Scoped dependency directly (the
+  "captive dependency" problem — it would pin the first-ever `DbContext` for the app's entire
+  lifetime). The service now takes an `IServiceScopeFactory` and resolves `IOrderStore`,
+  `IInventoryStore`, `INotifierTokenStore`, and the LINE clients from a fresh `IServiceProvider`
+  scope inside `PollOnceAsync`, created and disposed once per poll tick. Swapping store lifetimes
+  later needs no change here.
+- **`bool TryGet(..., out T value)` became `Task<T?> TryGetAsync(...)`.** C# doesn't allow `out`
+  parameters on `async` methods, so making these stores async-shaped forced a cleaner nullable-return
+  pattern anyway — which also fixes a pre-existing nullability lie (`out ShopOrder order` was
+  annotated non-nullable but `TryGetValue` populates it with `default` on a miss).
+- **`CancellationToken` now flows from the request into the store/webhook calls** in the `/webhook`
+  and `/api/shop/reserve` handlers (bound automatically from `HttpContext.RequestAborted` — no
+  `[FromServices]` needed for a `CancellationToken` parameter). `MiniAppClient`'s
+  `IssueNotificationTokenAsync`/`ReserveProductAsync` don't expose a cancellation overload, so the
+  token only reaches the calls that support it.
+- **`[FromServices]` was dropped from the endpoint parameters that resolve unconditionally
+  registered services** (`IPetStore`, `IInventoryStore`, `IOrderStore`, `INotifierTokenStore`,
+  `MiniAppClient`) — ASP.NET Core's minimal-API parameter binding infers "this is a DI service, not
+  a route/body value" automatically once it's actually registered at startup, so the attribute was
+  redundant ceremony there. It's still required on `WebhookRequestParser?`/`MessagingClient?` in the
+  `/webhook` handler, though — those two are *conditionally* registered (only when
+  `LINE_CHANNEL_SECRET`/`LINE_CHANNEL_ACCESS_TOKEN` are set), and the inference only recognizes types
+  it can see registered at startup. Without the attribute, ASP.NET Core mis-binds one of them as a
+  request-body parameter and the route fails to build at all — this was caught by re-running the
+  app after the cleanup, not by the compiler.

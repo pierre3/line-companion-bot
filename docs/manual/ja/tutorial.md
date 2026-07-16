@@ -780,3 +780,49 @@ Messageを生成すること、`setup`のCLI分岐とトークン未設定時の
   検証なし）は、`Program.cs`とREADMEで明記するに留め、コードでは解決していません——正しく検証
   するには本デモが持たない実リバースプロキシ構成が必要であり、このフィールドはLINEへの不正
   利用対策シグナルに過ぎず、このアプリ自身のセキュリティ境界ではないためです。
+
+## 永続化の抽象化リファクタリング
+
+後続のパスで、4つのインメモリストア（`PetStore`/`OrderStore`/`InventoryStore`/`NotifierTokenStore`）
+の公開の仕方を見直しました。デモ用インメモリ実装を本物のデータベースへ置き換える作業が、後から
+「書き直し」ではなく「DI登録の差し替え」で済むようにするためです。
+
+- **各ストアがインターフェース越しに公開されるようになりました**（`IPetStore`/`IOrderStore`/
+  `IInventoryStore`/`INotifierTokenStore`、`src/LineCompanionBot/Persistence/`配下）。全メソッドは
+  現行の`InMemory*`実装が実際には一度もawaitしていないにもかかわらず**async形（`Task`/`Task<T>`）**
+  にしています。インターフェースは後から`CancellationToken`を追加したり同期メソッドを非同期化
+  したりを安価にはできない——最初から実I/Oを想定した形にしておくことで、EF Core/Dapper等を使う
+  実装に差し替えても呼び出し側は一切変更不要になります。
+- **差し替え口は1つだけ。** `AddInMemoryPersistence()`
+  （`Persistence/InMemory/PersistenceServiceCollectionExtensions.cs`）が4実装を`Program.cs`から
+  1回の呼び出しでまとめて登録します。本番デプロイではこの1行を、例えば
+  `AddSqlPersistence(connectionString)`に差し替えるだけで済みます——呼び出し側はすべて`I*Store`
+  インターフェースにのみ依存し、具象型の`InMemory*`には一切依存していません。
+- **`PurchaseReconciliationService`はストアをコンストラクタ依存として受け取らなくなりました。**
+  このサービスはプロセス寿命全体で1つのSingletonな`BackgroundService`ですが、インメモリストアが
+  Singletonなのは「たまたま今そうなっている」だけです。RDBバックエンドのストアは通常Scoped
+  （作業単位ごとに1つの`DbContext`）で登録されるため、SingletonがScoped依存を直接持つと
+  「captive dependency」問題（アプリ全体の寿命の間、最初に生成された1つの`DbContext`に固定されて
+  しまう）が起きます。このサービスは`IServiceScopeFactory`を受け取り、`PollOnceAsync`の中で
+  ポーリング1回ごとに新しいスコープを作成・破棄し、そのスコープから`IOrderStore`/
+  `IInventoryStore`/`INotifierTokenStore`とLINEクライアント群を解決するようにしました。将来ストア
+  のライフタイムが変わっても、このクラス側の変更は不要です。
+- **`bool TryGet(..., out T value)`を`Task<T?> TryGetAsync(...)`に変更。** C#では`async`メソッドに
+  `out`パラメータを付けられないため、ストアをasync形にする過程でこの形へ自然に変わりました。
+  副産物として、既存のnull許容性の齟齬（`out ShopOrder order`は非null注釈でしたが、未検出時は
+  `TryGetValue`が`default`を入れていました）も解消されています。
+- **`/webhook`と`/api/shop/reserve`ハンドラで、`CancellationToken`がリクエストからストア/Webhook
+  呼び出しまで伝播するようになりました**（`HttpContext.RequestAborted`から自動的にバインドされ、
+  `CancellationToken`引数に`[FromServices]`は不要です）。`MiniAppClient`の
+  `IssueNotificationTokenAsync`/`ReserveProductAsync`にはキャンセル用オーバーロードが無いため、
+  トークンが実際に届くのはそれをサポートする呼び出し先のみです。
+- **無条件に登録されているサービスを受け取るエンドポイント引数（`IPetStore`/`IInventoryStore`/
+  `IOrderStore`/`INotifierTokenStore`/`MiniAppClient`）からは`[FromServices]`を外しました。**
+  ASP.NET Coreのminimal APIパラメータバインディングは、起動時に実際にDIへ登録されている型であれば
+  「これはルート/ボディの値ではなくDIサービスだ」を自動推論するため、この属性は冗長な儀式でした。
+  一方、`/webhook`ハンドラの`WebhookRequestParser?`/`MessagingClient?`では引き続き必須です——この
+  2つは`LINE_CHANNEL_SECRET`/`LINE_CHANNEL_ACCESS_TOKEN`が設定されている場合のみ**条件付きで**
+  登録されるため、起動時にDIへ登録されているのが見える型しか自動推論の対象にならないからです。
+  属性を外すと、ASP.NET Coreがそのうち片方をリクエストボディのパラメータと誤って推論し、ルート
+  自体の構築に失敗します——これはコンパイラではなく、クリーンアップ後にアプリを再実行して初めて
+  発覚しました。

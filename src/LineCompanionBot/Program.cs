@@ -9,6 +9,8 @@ using Line.OpenApi.MiniApp;
 using Line.OpenApi.MiniApp.DependencyInjection;
 using Line.OpenApi.MiniApp.Models;
 using LineCompanionBot;
+using LineCompanionBot.Persistence;
+using LineCompanionBot.Persistence.InMemory;
 using LineCompanionBot.Services;
 
 // "dotnet run -- setup": one-shot rich menu bootstrap. Handled before WebApplication is built —
@@ -39,10 +41,7 @@ if (settings.HasMessaging)
 // MiniAppClient takes tokens per call rather than via DI options, so this has no required config.
 builder.Services.AddLineMiniApp();
 
-builder.Services.AddSingleton<PetStore>();
-builder.Services.AddSingleton<OrderStore>();
-builder.Services.AddSingleton<InventoryStore>();
-builder.Services.AddSingleton<NotifierTokenStore>();
+builder.Services.AddInMemoryPersistence();
 builder.Services.AddHostedService<PurchaseReconciliationService>();
 
 var app = builder.Build();
@@ -61,15 +60,16 @@ app.MapGet("/api/shop/config", () => Results.Ok(new { liffId = settings.LiffId }
 
 app.MapGet("/api/shop/catalog", () => Results.Ok(ShopCatalog.Items));
 
-app.MapGet("/api/shop/inventory/{userId}", (string userId, [FromServices] InventoryStore inventory) =>
-    Results.Ok(inventory.Get(userId)));
+app.MapGet("/api/shop/inventory/{userId}", async (string userId, IInventoryStore inventory, CancellationToken ct) =>
+    Results.Ok(await inventory.GetAsync(userId, ct)));
 
 app.MapPost("/api/shop/reserve", async (
     ShopReserveRequest req,
-    [FromServices] MiniAppClient miniApp,
-    [FromServices] OrderStore orderStore,
-    [FromServices] NotifierTokenStore notifierTokens,
-    HttpContext http) =>
+    MiniAppClient miniApp,
+    IOrderStore orderStore,
+    INotifierTokenStore notifierTokens,
+    HttpContext http,
+    CancellationToken ct) =>
 {
     if (!settings.HasMessaging)
         return Results.Problem("LINE_CHANNEL_ACCESS_TOKEN is not configured.", statusCode: 503);
@@ -94,7 +94,7 @@ app.MapPost("/api/shop/reserve", async (
         var notifierToken = await miniApp.IssueNotificationTokenAsync(settings.ChannelAccessToken!, req.LiffAccessToken);
         if (notifierToken is not null)
         {
-            notifierTokens.Save(req.UserId, notifierToken);
+            await notifierTokens.SaveAsync(req.UserId, notifierToken, ct);
         }
     }
     catch (Exception ex)
@@ -129,16 +129,25 @@ app.MapPost("/api/shop/reserve", async (
     if (reserved?.OrderId is null)
         return Results.Problem("LINE did not return an order id.", statusCode: 502);
 
-    orderStore.Record(reserved.OrderId, req.UserId, item.ProductId);
+    // CancellationToken.None, not ct: LINE has already committed the order by this point (the
+    // ReserveProductAsync call above succeeded), so a client disconnecting right now must not be
+    // allowed to drop this local record — PurchaseReconciliationService can only match the
+    // eventual purchaseComplete event back to a user/product if this write actually lands.
+    await orderStore.RecordAsync(reserved.OrderId, req.UserId, item.ProductId, CancellationToken.None);
     return Results.Ok(new { orderId = reserved.OrderId });
 });
 
 app.MapPost("/webhook", async (
     HttpRequest request,
+    // [FromServices] is required here (not just idiomatic sugar): both are conditionally
+    // registered (see the HasWebhook/HasMessaging gates above), so ASP.NET Core's automatic
+    // DI-vs-body inference — which only recognizes types it can see registered at startup — can't
+    // tell these apart from a body/route parameter and fails to build the route at all.
     [FromServices] WebhookRequestParser? parser,
     [FromServices] MessagingClient? messaging,
-    [FromServices] PetStore petStore,
-    [FromServices] InventoryStore inventory) =>
+    IPetStore petStore,
+    IInventoryStore inventory,
+    CancellationToken ct) =>
 {
     if (parser is null)
         return Results.Problem("LINE_CHANNEL_SECRET is not configured.", statusCode: 503);
@@ -146,7 +155,7 @@ app.MapPost("/webhook", async (
     // Read the raw body bytes: the signature is computed over these exact bytes, so read them
     // before any model binding.
     using var ms = new MemoryStream();
-    await request.Body.CopyToAsync(ms);
+    await request.Body.CopyToAsync(ms, ct);
     var body = ms.ToArray();
     var signature = request.Headers["x-line-signature"];
 
@@ -168,7 +177,7 @@ app.MapPost("/webhook", async (
             continue;
 
         var now = DateTimeOffset.UtcNow;
-        var pet = petStore.GetOrCreate(userId, now);
+        var pet = await petStore.GetOrCreateAsync(userId, now, ct);
 
         FlexMessage reply;
         switch (postback.Postback?.Data)
@@ -176,22 +185,26 @@ app.MapPost("/webhook", async (
             case "action=feed":
                 // A purchased "rare-food" item is consumed for a full instant refill instead of
                 // the usual partial gain; cosmetic items (hat/badge) have no feed-time effect.
-                pet = inventory.TryConsume(userId, "rare-food")
+                // CancellationToken.None for both calls below, not ct: TryConsumeAsync already
+                // mutates state (removes the item) the instant it returns true, so the matching
+                // SaveAsync of the pet's feed effect must not be skippable by a cancellation
+                // landing between the two calls — otherwise the item is spent with nothing granted.
+                pet = await inventory.TryConsumeAsync(userId, "rare-food", CancellationToken.None)
                     ? PetGrowthEngine.FeedRare(pet, now)
                     : PetGrowthEngine.Feed(pet, now);
-                petStore.Save(pet);
+                await petStore.SaveAsync(pet, CancellationToken.None);
                 reply = PetFlexMessageFactory.BuildStatus(pet);
                 break;
             case "action=play":
                 var played = PetGrowthEngine.Play(pet, now);
-                petStore.Save(played.State);
+                await petStore.SaveAsync(played.State, ct);
                 reply = played.Success
                     ? PetFlexMessageFactory.BuildStatus(played.State)
                     : PetFlexMessageFactory.BuildPlayRefused(played.State);
                 break;
             case "action=status":
                 pet = PetGrowthEngine.Status(pet, now);
-                petStore.Save(pet);
+                await petStore.SaveAsync(pet, ct);
                 reply = PetFlexMessageFactory.BuildStatus(pet);
                 break;
             default:
@@ -204,7 +217,7 @@ app.MapPost("/webhook", async (
             {
                 ReplyToken = replyToken,
                 Messages = new List<Message> { reply },
-            });
+            }, cancellationToken: ct);
         }
         catch (Exception ex)
         {
