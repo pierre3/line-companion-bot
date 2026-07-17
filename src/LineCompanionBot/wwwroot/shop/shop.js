@@ -14,43 +14,62 @@ async function main() {
     return;
   }
 
+  const iapAvailable = liff.isApiAvailable('iap');
   statusEl.textContent = 'Choose an item:';
   const catalog = await fetch('/api/shop/catalog').then(r => r.json());
   for (const item of catalog) {
     const li = document.createElement('li');
     li.innerHTML = `<strong>${item.name}</strong><br>${item.description}
-      <button data-product-id="${item.productId}">Buy</button>`;
-    li.querySelector('button').addEventListener('click', () => buy(item));
+      <button data-product-id="${item.productId}" ${iapAvailable ? '' : 'disabled'}>Buy</button>`;
+    const button = li.querySelector('button');
+    button.addEventListener('click', () => buy(item, button));
     catalogEl.appendChild(li);
+  }
+  if (!iapAvailable) {
+    statusEl.textContent = 'In-app purchase is not available in this client — Buy is disabled.';
   }
 }
 
-async function buy(item) {
-  const profile = await liff.getProfile();
-  const reserveResponse = await fetch('/api/shop/reserve', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      userId: profile.userId,
-      productId: item.productId,
-      liffAccessToken: liff.getAccessToken(),
-      clientOs: liff.getOS(),
-    }),
-  });
-
-  if (!reserveResponse.ok) {
-    statusEl.textContent = `Failed to reserve ${item.name}.`;
+async function buy(item, button) {
+  if (!liff.isApiAvailable('iap')) {
+    statusEl.textContent = 'In-app purchase is not available in this client.';
     return;
   }
 
-  const { orderId } = await reserveResponse.json();
+  // Disabled for the whole reserve/consent/createPayment sequence: each of those creates or
+  // spends a real LINE-side commitment (a reserved order, a consent prompt), and a second click
+  // mid-flight would reserve a second order for the same item with no way to cancel the first.
+  button.disabled = true;
+  try {
+    const profile = await liff.getProfile();
+    const reserveResponse = await fetch('/api/shop/reserve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: profile.userId,
+        productId: item.productId,
+        liffAccessToken: liff.getAccessToken(),
+        clientOs: liff.getOS(),
+      }),
+    });
 
-  // TODO: hand `orderId` to LINE's in-app purchase SDK to actually drive the platform purchase
-  // UI and complete the transaction. The exact call is outside Line.OpenApi.*'s scope (this repo
-  // only wraps the server-side reserve API) — verify the current method name against LINE's
-  // official MINI App IAP docs before wiring this up for real. Do not guess it.
-  statusEl.textContent = `Reserved order ${orderId} for ${item.name} — `
-    + `hand this to the platform IAP SDK to complete the purchase (see TODO in shop.js).`;
+    if (!reserveResponse.ok) {
+      statusEl.textContent = `Failed to reserve ${item.name}.`;
+      return;
+    }
+
+    const { orderId } = await reserveResponse.json();
+
+    try {
+      await liff.iap.requestConsentAgreement();
+      await liff.iap.createPayment({ productId: item.productId, orderId });
+      statusEl.textContent = `Purchase started for ${item.name} — you'll be notified in chat once it completes.`;
+    } catch (err) {
+      statusEl.textContent = `Purchase for ${item.name} was cancelled or failed: ${err.message ?? err}`;
+    }
+  } finally {
+    button.disabled = false;
+  }
 }
 
 main().catch(err => {

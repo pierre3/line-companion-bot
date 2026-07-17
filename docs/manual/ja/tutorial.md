@@ -432,16 +432,27 @@ app.MapPost("/api/shop/reserve", async (ShopReserveRequest req, MiniAppClient mi
   失敗しても（第8章のトークン種別に関する注意点参照——十分にあり得ます）、購入自体は進行しな
   ければなりません。リクエストを失敗させてよいのは`ReserveProductAsync`の失敗だけです。
 
-**意図的に埋めていないブロッキングTODO。** `reserve`が`orderId`を返した後、フロントエンドは
-それをLINEのアプリ内課金JS SDKに渡して実際の購入UIを駆動するはずです。そのSDKは
-`Line.OpenApi.*`がラップするものではありません——クライアント側のMINI App固有JavaScriptで
-あり、そのメソッド名を推測することは、明確にマークされた欠落を残すことよりも悪い選択です:
+**`orderId`をLINEのアプリ内課金SDKへ渡す。** `reserve`が`orderId`を返した後、フロントエンドは
+それを使って実際の購入UIを駆動します。そのSDKは`Line.OpenApi.*`がラップするものではありません
+——クライアント側のMINI App固有JavaScriptで、LIFF SDKの`iap`名前空間経由で公開されています
+（推測ではなくLINE公式のMINI App IAPドキュメントで確認済み）:
 
 ```js
-// TODO: `orderId`をLINEのアプリ内課金SDKに渡してトランザクションを完了させる。
-// 正確な呼び出しはLine.OpenApi.*のスコープ外——実装時にLINE公式のMINI App IAPドキュメントで
-// 確認すること。推測しないこと。
+if (!liff.isApiAvailable('iap')) {
+  // Buyボタンを無効化する — このクライアントではそもそも購入を完了できない。
+}
+
+// reserve（上記バックエンド）を先に呼んでから:
+await liff.iap.requestConsentAgreement();           // 既に同意済みなら何もしない
+await liff.iap.createPayment({ productId, orderId }); // App Store / Play Storeの購入UIを駆動
 ```
+
+`isApiAvailable('iap')`は`createPayment`の直前だけでなく`reserve`より前にもチェックします
+——`reserve`は既にLINE側で実際の注文をコミットしてしまうため（上記バックエンドの
+`CancellationToken.None`に関する注記参照）、購入を完了できないクライアントのためにその
+コミットを消費させる意味がないからです。`createPayment`はキャンセル・失敗時に例外を投げるので、
+ショップ側はエラーを表示してユーザーに再試行させるだけにとどめます——
+`PurchaseReconciliationService`（第7章）は実際に完了した注文にしか在庫を付与しないためです。
 
 **動かしてみる**（バックエンド契約の検証にMINI Appチャンネルはまだ不要）:
 
@@ -697,10 +708,8 @@ devtunnel host -p 5091 --allow-anonymous
 2. **Feed**/**Play**/**Status**をタップ——それぞれ約1秒以内にFlex Messageのステータスカードが
    返るはずです。Hungerが低い状態（または減衰は実時間なので待って）で**Play**を試すと、
    拒否カードが見られます。
-3. **Shop**をタップしてMINI Appを開く——カタログが読み込まれ、アイテムを予約できるはずです。
-   実際の購入を完了させるには、`shop.js`（第6章）にTODOとして残したクライアント側IAP SDK呼び
-   出しの配線が必要です——まずLINE現行のMINI App IAPドキュメントで正確な呼び出しを確認して
-   ください。
+3. **Shop**をタップしてMINI Appを開く——カタログが読み込まれ、アイテムを購入できるはずです
+   （`liff.iap.createPayment`が実際のApp Store/Play Store購入UIを起動します——第6章参照）。
 4. 購入が完了すると、`PurchaseReconciliationService`が次のポーリングtick
    （`LINE_MINIAPP_POLL_SECONDS`、既定30秒——**即座ではありません**、push webhookが無いため）
    で検出し、新しいアイテムを知らせるチャットメッセージが届くはずです。

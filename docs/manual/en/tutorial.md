@@ -433,16 +433,27 @@ Two things worth calling out:
   a notifier token fails (very possible — see Chapter 8's caveat about token types), the purchase
   itself must still proceed. Only `ReserveProductAsync` failing should fail the request.
 
-**The blocking TODO, left deliberately unfilled.** After `reserve` returns an `orderId`, the front
-end is supposed to hand it to LINE's in-app purchase JS SDK to actually drive the purchase UI.
-That SDK isn't something `Line.OpenApi.*` wraps — it's client-side, MINI-App-specific JavaScript,
-and guessing its method name would be worse than leaving a clearly marked gap:
+**Handing `orderId` to LINE's in-app purchase SDK.** After `reserve` returns an `orderId`, the front
+end drives the actual purchase UI. That SDK isn't something `Line.OpenApi.*` wraps — it's client-side,
+MINI-App-specific JavaScript exposed through the LIFF SDK's `iap` namespace (confirmed against LINE's
+official MINI App IAP docs, not guessed):
 
 ```js
-// TODO: hand `orderId` to LINE's in-app purchase SDK to actually complete the transaction.
-// The exact call is outside Line.OpenApi.*'s scope — verify it against LINE's official MINI App
-// IAP docs before wiring this up for real. Do not guess it.
+if (!liff.isApiAvailable('iap')) {
+  // Disable the Buy button — this client can't complete a purchase at all.
+}
+
+// Reserve first (see backend above), then:
+await liff.iap.requestConsentAgreement();           // no-op if the user already agreed
+await liff.iap.createPayment({ productId, orderId }); // drives the App Store / Play Store UI
 ```
+
+`isApiAvailable('iap')` is checked before `reserve` runs, not just before `createPayment` — `reserve`
+already commits a real order with LINE (see the backend's `CancellationToken.None` comment above), so
+there's no point spending that commitment on a client that can never complete the purchase.
+`createPayment` throws on cancellation or failure; the shop just surfaces the error and lets the user
+retry, since `PurchaseReconciliationService` (Chapter 7) only ever grants inventory for orders that
+actually complete.
 
 **Try it** (no MINI App channel needed yet to exercise the backend contract):
 
@@ -700,9 +711,8 @@ Set the forwarded HTTPS URL + `/webhook` as the channel's Webhook URL in the con
 2. Tap **Feed** / **Play** / **Status** — each should produce a Flex Message status card within
    about a second. Try **Play** while Hunger is low (or wait — decay is real-time) to see the
    refusal card.
-3. Tap **Shop** to open the MINI App; it should load the catalog and let you reserve an item.
-   Completing the actual purchase requires wiring the client-side IAP SDK call left as a TODO in
-   `shop.js` (Chapter 6) — verify the exact call against LINE's current MINI App IAP docs first.
+3. Tap **Shop** to open the MINI App; it should load the catalog and let you buy an item
+   (`liff.iap.createPayment` drives the actual App Store / Play Store purchase UI — see Chapter 6).
 4. Once a purchase completes, `PurchaseReconciliationService` picks it up on its next poll tick
    (`LINE_MINIAPP_POLL_SECONDS`, default 30 — **not instant**, there is no push webhook for this)
    and a chat message announcing the new item should arrive.

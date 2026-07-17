@@ -52,11 +52,6 @@ dotnet test
 
 ## 既知の制約
 
-- MINI Appショップのクライアント側購入完了呼び出し（予約した`orderId`をLINEのアプリ内課金JS SDKに
-  渡す部分）は、`wwwroot/shop/shop.js`に明示的な`TODO`として残しています——そのSDKは
-  `Line.OpenApi.*`のスコープ外（本リポジトリはサーバ側のreserve APIのみラップ）のため、正確な
-  呼び出しを意図的に推測していません。実際の購入フローで使う前に、LINE現行のMINI App IAP
-  ドキュメントで確認してください。
 - `POST /api/shop/reserve`は、自身の帳簿付け（`OrderStore`）のために、クライアントが送ってきた
   `userId`をそのまま信頼します（`Line.OpenApi.MiniApp`はLIFFアクセストークンからサーバ側で検証
   する呼び出しを提供していません）。ただし肝心な箇所では緩和されています:
@@ -68,6 +63,11 @@ dotnet test
 - `ReserveProductAsync`の`clientIp`導出に使う`X-Forwarded-For`ヘッダは、信頼できるプロキシの
   許可リストに対して検証されていないため、直接の呼び出し元が任意の値を設定できます。検証済みの
   クライアントIPではなく、ベストエフォートの不正利用対策シグナルとして扱ってください。
+- クライアント側の`liff.iap.createPayment()`が`reserve`成功後にキャンセル/失敗した場合、
+  `IOrderStore`のエントリとLINE側の予約注文は解放されないままになります——`Line.OpenApi.MiniApp`
+  に予約解放APIが無いためです。実害はありません（`PurchaseReconciliationService`は実際に
+  `purchaseComplete`まで到達した`OrderId`にしか反応しないため）が、インメモリストアには
+  使われないレコードが残り続けます。
 
 ## ステータス
 

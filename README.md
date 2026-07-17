@@ -53,11 +53,6 @@ dotnet test
 
 ## Known limitations
 
-- The MINI App shop's client-side purchase-completion call (handing the reserved `orderId` to
-  LINE's in-app purchase JS SDK) is left as an explicit `TODO` in `wwwroot/shop/shop.js` — that SDK
-  is outside `Line.OpenApi.*`'s scope (this repo only wraps the server-side reserve API), so the
-  exact call was deliberately not guessed. Verify it against LINE's current MINI App IAP docs
-  before relying on it for a real purchase flow.
 - `POST /api/shop/reserve` trusts the client-supplied `userId` for its own bookkeeping
   (`Line.OpenApi.MiniApp` exposes no server-side call to verify it from the LIFF access token).
   This is mitigated at the point that matters: `PurchaseReconciliationService` grants and notifies
@@ -68,6 +63,11 @@ dotnet test
 - The `X-Forwarded-For` header used to derive `clientIp` for `ReserveProductAsync` isn't validated
   against a trusted-proxy allowlist, so a direct caller can set it to anything. Treat it as a
   best-effort anti-fraud signal, not a verified client IP.
+- If the client-side `liff.iap.createPayment()` call is cancelled or fails after `reserve` already
+  succeeded, the `IOrderStore` entry and LINE's own reserved order are never cleaned up —
+  `Line.OpenApi.MiniApp` exposes no reservation-release call. This is harmless (
+  `PurchaseReconciliationService` only ever acts on an `OrderId` that actually reaches
+  `purchaseComplete`), just a permanently unused record in the in-memory store.
 
 ## Status
 
