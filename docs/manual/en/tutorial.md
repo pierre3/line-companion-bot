@@ -827,3 +827,64 @@ is a DI registration change, not a rewrite:
   it can see registered at startup. Without the attribute, ASP.NET Core mis-binds one of them as a
   request-body parameter and the route fails to build at all — this was caught by re-running the
   app after the cleanup, not by the compiler.
+
+## Configuration binding, error handling, and endpoint organization refactor
+
+A later pass revisited the project's own conventions after a direct request to prioritize
+framework-recommended patterns for anything .NET/ASP.NET-specific, even where a hand-rolled
+alternative would technically be "more minimal." Three changes came out of that:
+
+- **`CompanionSettings.FromEnvironment()` (plain `Environment.GetEnvironmentVariable` calls) became
+  `IConfiguration.Get<CompanionSettings>()`** — the standard .NET mechanism for binding read-once
+  startup configuration into a POCO. `CompanionSettings` changed from a positional `record` to a
+  settable-property class (the binder needs a parameterless constructor and settable properties),
+  and each property carries `[ConfigurationKeyName("LINE_...")]` so the bound key is exactly the
+  original flat environment variable name — `LINE_CHANNEL_SECRET` still means the same thing, set
+  the same way, with the same `bool Has*` gating behavior for missing config. `IConfiguration.Get<T>()`
+  was chosen over the fuller `IOptions<T>`/`Configure<T>()` Options pattern deliberately: this app
+  never needs configuration reload or validation-at-startup (which would conflict with the "always
+  starts, even unconfigured" design decision), so the lighter, equally-standard `Get<T>()` binding
+  fits without adding machinery nothing consumes. One behavior change worth knowing: an unparsable
+  `LINE_MINIAPP_POLL_SECONDS` (e.g. non-numeric text) now throws at first access instead of silently
+  falling back to 30 — the old `int.TryParse` masked exactly the kind of operator typo this surfaces
+  loudly instead.
+  - The one-shot `dotnet run -- setup` CLI path runs before any `WebApplication`/host is built, so it
+    has no `IConfiguration` to reuse — it now assembles its own via
+    `new ConfigurationBuilder().AddJsonFile("appsettings.json", optional: true).AddEnvironmentVariables().Build()`,
+    mirroring the same provider stack the web host uses.
+  - `appsettings.json`/`appsettings.Development.json` were added with the standard `Logging` section
+    every ASP.NET Core Web template ships — this app's `LINE_*` settings still come from environment
+    variables in practice, but the standard configuration file shape is now present rather than
+    absent, and it's genuinely useful for adjusting log levels without an env var.
+  - A test (`CompanionSettingsBindingTests`) building an in-memory `IConfiguration` and asserting the
+    `[ConfigurationKeyName]` bindings round-trip caught a real gap while it was being written:
+    `IConfiguration.Get<T>()` returns `null` — not a defaulted instance — when the configuration is
+    completely empty, which is exactly why `Program.cs` has a `?? new CompanionSettings()` fallback,
+    not defensive over-caution.
+- **`builder.Services.AddProblemDetails()` + `app.UseExceptionHandler()`** were added — the standard
+  .NET 8+ pattern for shaping unhandled-exception responses as `application/problem+json` instead of
+  a bare 500. Every `Results.Problem(...)` call already produced this shape for *known* error
+  conditions; this closes the gap for genuinely unexpected exceptions (confirmed via a raw
+  request that formerly hit a Development exception page/blank 500 — the 503 responses used for the
+  smoke tests above now include a `traceId` field, which is `AddProblemDetails()` enriching the
+  response).
+- **The `/webhook` and `/api/shop/*` handlers moved out of `Program.cs`** into
+  `Endpoints/WebhookEndpoints.cs` and `Endpoints/ShopEndpoints.cs` (extension methods
+  `MapWebhookEndpoint()`/`MapShopEndpoints()`, the latter using `MapGroup("/api/shop")`) — minimal
+  API's own recommended pattern for organizing routes once a single `Program.cs` accumulates more
+  than a couple of substantial handlers. This also forced a small cleanup: the handlers could no
+  longer close over `Program.cs`'s local `settings` variable (a different file, a different method),
+  so they now take `CompanionSettings` as a DI-resolved parameter like everything else already did —
+  removing an inconsistency where some code paths used DI and others used closure capture for the
+  same value. The trivial one-line `/` status endpoint stayed inline in `Program.cs`; only the two
+  handlers substantial enough to benefit from extraction were moved.
+
+This refactor exists because of, not despite, the project's own design record: the *previous*
+refactor (persistence abstraction, above) had its review gate flag a conflict with `CLAUDE.md`'s
+then-current conventions, which were narrowly amended at the time to carve out that one abstraction
+as an explicit exception. Rather than leave that as a one-off carve-out, `CLAUDE.md`'s conventions
+section was then rewritten directly to state the broader priority this refactor implements: default
+to the framework-recommended approach for anything dotnet/ASP.NET-specific, and never let
+simplification break a standard ASP.NET Core Web app's shape — replacing the older "no
+`appsettings.json` binding, plain env-var reads" and "avoid abstractions with a single call site"
+lines outright rather than accumulating more exceptions next to them.

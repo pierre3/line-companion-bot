@@ -1,28 +1,41 @@
+using Microsoft.Extensions.Configuration;
+
 namespace LineCompanionBot;
 
-// Read once from environment variables at startup (no appsettings.json binding — matches the
-// Line.OpenApi.* sample convention of plain env-var configuration, always-startable app).
-public sealed record CompanionSettings(
-    string? ChannelSecret,
-    string? ChannelAccessToken,
-    string? LiffId,
-    string? TemplateName,
-    int PollSeconds)
+// Bound from IConfiguration (env vars, appsettings.json, etc. — see Program.cs) via
+// configuration.Get<CompanionSettings>(), the standard .NET configuration-binding mechanism.
+// [ConfigurationKeyName] keeps every property bound to its original flat LINE_* key regardless of
+// the C# property name, so this still reads from plain environment variables exactly as before —
+// no appsettings.json section, no renamed env vars.
+public sealed class CompanionSettings
 {
+    [ConfigurationKeyName("LINE_CHANNEL_SECRET")]
+    public string? ChannelSecret { get; set; }
+
+    [ConfigurationKeyName("LINE_CHANNEL_ACCESS_TOKEN")]
+    public string? ChannelAccessToken { get; set; }
+
+    [ConfigurationKeyName("LINE_MINIAPP_LIFF_ID")]
+    public string? LiffId { get; set; }
+
+    [ConfigurationKeyName("LINE_MINIAPP_TEMPLATE_NAME")]
+    public string? TemplateName { get; set; }
+
+    private int _pollSeconds = 30;
+
+    // Non-positive values (e.g. a "0" or negative typo) fall back to 30 rather than binding
+    // successfully — PurchaseReconciliationService.ExecuteAsync constructs a PeriodicTimer from
+    // this value outside its own poll-failure try/catch, and PeriodicTimer throws on a non-positive
+    // interval, which would otherwise crash the whole host (BackgroundService's default exception
+    // behavior stops the host) instead of merely leaving reconciliation misconfigured.
+    [ConfigurationKeyName("LINE_MINIAPP_POLL_SECONDS")]
+    public int PollSeconds
+    {
+        get => _pollSeconds;
+        set => _pollSeconds = value > 0 ? value : 30;
+    }
+
     public bool HasWebhook => !string.IsNullOrWhiteSpace(ChannelSecret);
     public bool HasMessaging => !string.IsNullOrWhiteSpace(ChannelAccessToken);
     public bool HasShop => !string.IsNullOrWhiteSpace(LiffId);
-
-    public static CompanionSettings FromEnvironment()
-    {
-        var pollSecondsRaw = Environment.GetEnvironmentVariable("LINE_MINIAPP_POLL_SECONDS");
-        var pollSeconds = int.TryParse(pollSecondsRaw, out var parsed) && parsed > 0 ? parsed : 30;
-
-        return new CompanionSettings(
-            ChannelSecret: Environment.GetEnvironmentVariable("LINE_CHANNEL_SECRET"),
-            ChannelAccessToken: Environment.GetEnvironmentVariable("LINE_CHANNEL_ACCESS_TOKEN"),
-            LiffId: Environment.GetEnvironmentVariable("LINE_MINIAPP_LIFF_ID"),
-            TemplateName: Environment.GetEnvironmentVariable("LINE_MINIAPP_TEMPLATE_NAME"),
-            PollSeconds: pollSeconds);
-    }
 }

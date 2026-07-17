@@ -35,8 +35,8 @@ MINI Appショップでレア餌・スキンをIAP課金購入すると、購入
   `src/LineCompanionBot/Persistence/`配下の`I*Store`インターフェース（`IPetStore`/`IOrderStore`/
   `IInventoryStore`/`INotifierTokenStore`）越しに公開しており、`AddInMemoryPersistence()`
   （`Persistence/InMemory/PersistenceServiceCollectionExtensions.cs`）1箇所のDI登録を差し替える
-  だけで将来RDB等の実装に切り替えられる作りにしている（2026-07-17、人の承認により方針変更・
-  下記「過剰設計を避ける」規約の明示的な例外として採用）。インターフェースは実I/Oを見据えて
+  だけで将来RDB等の実装に切り替えられる作りにしている（2026-07-17、人の承認により方針変更）。
+  インターフェースは実I/Oを見据えて
   async形（`Task`/`Task<T>`）にしてあるが、現行実装（`InMemory*`）は同期処理をラップしているだけ
   で実際には一度もawaitしない。
 - **Pet状態:** Hunger/Happiness を参照時に遅延減衰計算（バックグラウンドタイマーは使わない）。
@@ -77,12 +77,8 @@ MINI Appショップでレア餌・スキンをIAP課金購入すると、購入
 ## 規約
 
 - 全コメントは英語（XML doc・インライン共に）。公開しうるOSSサンプルとして一貫性を保つため。
-- `appsettings.json` バインドは使わない。設定は `Environment.GetEnvironmentVariable` 直読み
-  （既存 `line-dotnet` サンプル群の規約踏襲）。未設定でも起動は継続し、該当機能のみ無効化。
-- 過剰設計を避ける: 呼び出し元が1箇所しかない抽象化・インターフェースは作らない。
-  例外: `Persistence/`配下の`I*Store`群は呼び出し元・実装ともに現状1つずつだが、
-  「最小構成から本格実装への移行を容易にする」という明示的な要件のもとで人が承認した抽象化
-  （2026-07-17）。新たに同様の抽象化を追加する際は、同水準の明示的な承認を経ること。
+- 最小限の実装を基本とするが、dotnet固有の実装についてはフレームワーク推奨の実装を優先する。
+- Asp.NETのWebアプリの標準的な実装が崩れるような単純化は避ける事。
 
 ## 実装状況
 
