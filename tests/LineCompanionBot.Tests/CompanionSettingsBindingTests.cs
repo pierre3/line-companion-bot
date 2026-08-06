@@ -5,7 +5,7 @@ namespace LineCompanionBot.Tests;
 
 public class CompanionSettingsBindingTests
 {
-    // Mirrors Program.cs exactly: Get&lt;T&gt;() returns null (not a defaulted instance) when the
+    // Mirrors Program.cs exactly: Get<T>() returns null (not a defaulted instance) when the
     // configuration is completely empty, so the "?? new()" fallback is load-bearing, not defensive.
     private static CompanionSettings Bind(Dictionary<string, string?> values)
         => new ConfigurationBuilder().AddInMemoryCollection(values).Build().Get<CompanionSettings>() ?? new CompanionSettings();
