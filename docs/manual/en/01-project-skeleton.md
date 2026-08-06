@@ -171,26 +171,99 @@ feature slots into.
 
 ## A test for the binding
 
-The binding has enough subtlety (the `null`-on-empty behavior, the `PollSeconds` clamp) to be worth
-one test. Add `tests/LineCompanionBot.Tests/CompanionSettingsBindingTests.cs`:
+The binding has a few behaviors worth locking down — the `[ConfigurationKeyName]` mapping, the
+`PollSeconds` clamp, and how an unparsable value is handled. Here's the whole test file,
+`tests/LineCompanionBot.Tests/CompanionSettingsBindingTests.cs`:
 
 ```csharp
-private static CompanionSettings Bind(Dictionary<string, string?> values)
-    => new ConfigurationBuilder().AddInMemoryCollection(values).Build()
-        .Get<CompanionSettings>() ?? new CompanionSettings();
+using Microsoft.Extensions.Configuration;
+using Xunit;
 
-[Fact]
-public void Get_BindsEachPropertyFromItsFlatLineEnvVarStyleKey() { /* asserts LINE_* → properties */ }
+namespace LineCompanionBot.Tests;
 
-[Fact]
-public void Get_WithNoKeysSet_LeavesEverythingUnconfiguredAndDefaultsPollSeconds() { /* asserts null + 30 */ }
+public class CompanionSettingsBindingTests
+{
+    // Mirrors Program.cs exactly: Get<T>() returns null (not a defaulted instance) when the
+    // configuration is completely empty, so the "?? new()" fallback is load-bearing, not defensive.
+    private static CompanionSettings Bind(Dictionary<string, string?> values)
+        => new ConfigurationBuilder().AddInMemoryCollection(values).Build().Get<CompanionSettings>() ?? new CompanionSettings();
 
-[Theory, InlineData("0"), InlineData("-5")]
-public void Get_WithNonPositivePollSeconds_FallsBackTo30(string value) { /* ... */ }
+    [Fact]
+    public void Get_BindsEachPropertyFromItsFlatLineEnvVarStyleKey()
+    {
+        var settings = Bind(new Dictionary<string, string?>
+        {
+            ["LINE_CHANNEL_SECRET"] = "secret",
+            ["LINE_CHANNEL_ACCESS_TOKEN"] = "token",
+            ["LINE_MINIAPP_LIFF_ID"] = "liff-id",
+            ["LINE_MINIAPP_TEMPLATE_NAME"] = "template",
+            ["LINE_MINIAPP_POLL_SECONDS"] = "45",
+        });
 
-[Fact]
-public void Get_WithNonNumericPollSeconds_Throws() { /* Assert.Throws<InvalidOperationException> */ }
+        Assert.Equal("secret", settings.ChannelSecret);
+        Assert.Equal("token", settings.ChannelAccessToken);
+        Assert.Equal("liff-id", settings.LiffId);
+        Assert.Equal("template", settings.TemplateName);
+        Assert.Equal(45, settings.PollSeconds);
+        Assert.True(settings.HasWebhook);
+        Assert.True(settings.HasMessaging);
+        Assert.True(settings.HasShop);
+    }
+
+    [Fact]
+    public void Get_WithNoKeysSet_LeavesEverythingUnconfiguredAndDefaultsPollSeconds()
+    {
+        var settings = Bind(new Dictionary<string, string?>());
+
+        Assert.Null(settings.ChannelSecret);
+        Assert.Null(settings.ChannelAccessToken);
+        Assert.Null(settings.LiffId);
+        Assert.Null(settings.TemplateName);
+        Assert.Equal(30, settings.PollSeconds);
+        Assert.False(settings.HasWebhook);
+        Assert.False(settings.HasMessaging);
+        Assert.False(settings.HasShop);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-5")]
+    public void Get_WithNonPositivePollSeconds_FallsBackTo30(string value)
+    {
+        var settings = Bind(new Dictionary<string, string?> { ["LINE_MINIAPP_POLL_SECONDS"] = value });
+
+        Assert.Equal(30, settings.PollSeconds);
+    }
+
+    [Fact]
+    public void Get_WithNonNumericPollSeconds_Throws()
+    {
+        Assert.Throws<InvalidOperationException>(
+            () => new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["LINE_MINIAPP_POLL_SECONDS"] = "not-a-number" })
+                .Build()
+                .Get<CompanionSettings>());
+    }
+}
 ```
 
-Run it from the Test task (`tasks.json` → `test`) or `dotnet test`. Writing the empty-config test
-is exactly what surfaced the `?? new()` requirement above.
+`Bind` is a tiny helper that builds an in-memory `IConfiguration` and binds it exactly as
+`Program.cs` does. Each test then pins one behavior:
+
+- **`Get_BindsEachPropertyFromItsFlatLineEnvVarStyleKey`** — every `LINE_*` key maps onto its
+  property, `PollSeconds` takes the supplied value, and the three `Has*` flags flip to `true`.
+- **`Get_WithNoKeysSet_LeavesEverythingUnconfiguredAndDefaultsPollSeconds`** — with nothing set, the
+  string properties stay `null`, `PollSeconds` defaults to 30, and every `Has*` flag is `false` (the
+  "always starts, unconfigured" baseline).
+- **`Get_WithNonPositivePollSeconds_FallsBackTo30`** — a `0` or negative interval falls back to 30,
+  matching the setter's clamp so a typo can't hand `PeriodicTimer` an invalid interval in
+  [Chapter 7](07-reconciliation.md).
+- **`Get_WithNonNumericPollSeconds_Throws`** — a non-numeric value throws at bind time instead of
+  being silently ignored, surfacing an operator typo loudly.
+
+Run them from the **test** task (*Terminal → Run Task → test*, or the Test Explorer), or from a
+terminal:
+
+```powershell
+dotnet test
+```

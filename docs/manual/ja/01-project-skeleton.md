@@ -177,27 +177,98 @@ Invoke-RestMethod http://localhost:5091/
 
 ## バインディングのテスト
 
-このバインディングには、テストを1つ書いておく価値があるだけの機微があります（空のとき`null`になる
-挙動、`PollSeconds` のクランプ）。`tests/LineCompanionBot.Tests/CompanionSettingsBindingTests.cs`
-を追加しましょう:
+このバインディングには、押さえておきたい挙動がいくつかあります——`[ConfigurationKeyName]` による
+マッピング、`PollSeconds` のクランプ、そしてパースできない値の扱いです。テストファイル全体
+`tests/LineCompanionBot.Tests/CompanionSettingsBindingTests.cs` はこうです:
 
 ```csharp
-private static CompanionSettings Bind(Dictionary<string, string?> values)
-    => new ConfigurationBuilder().AddInMemoryCollection(values).Build()
-        .Get<CompanionSettings>() ?? new CompanionSettings();
+using Microsoft.Extensions.Configuration;
+using Xunit;
 
-[Fact]
-public void Get_BindsEachPropertyFromItsFlatLineEnvVarStyleKey() { /* asserts LINE_* → properties */ }
+namespace LineCompanionBot.Tests;
 
-[Fact]
-public void Get_WithNoKeysSet_LeavesEverythingUnconfiguredAndDefaultsPollSeconds() { /* asserts null + 30 */ }
+public class CompanionSettingsBindingTests
+{
+    // Mirrors Program.cs exactly: Get<T>() returns null (not a defaulted instance) when the
+    // configuration is completely empty, so the "?? new()" fallback is load-bearing, not defensive.
+    private static CompanionSettings Bind(Dictionary<string, string?> values)
+        => new ConfigurationBuilder().AddInMemoryCollection(values).Build().Get<CompanionSettings>() ?? new CompanionSettings();
 
-[Theory, InlineData("0"), InlineData("-5")]
-public void Get_WithNonPositivePollSeconds_FallsBackTo30(string value) { /* ... */ }
+    [Fact]
+    public void Get_BindsEachPropertyFromItsFlatLineEnvVarStyleKey()
+    {
+        var settings = Bind(new Dictionary<string, string?>
+        {
+            ["LINE_CHANNEL_SECRET"] = "secret",
+            ["LINE_CHANNEL_ACCESS_TOKEN"] = "token",
+            ["LINE_MINIAPP_LIFF_ID"] = "liff-id",
+            ["LINE_MINIAPP_TEMPLATE_NAME"] = "template",
+            ["LINE_MINIAPP_POLL_SECONDS"] = "45",
+        });
 
-[Fact]
-public void Get_WithNonNumericPollSeconds_Throws() { /* Assert.Throws<InvalidOperationException> */ }
+        Assert.Equal("secret", settings.ChannelSecret);
+        Assert.Equal("token", settings.ChannelAccessToken);
+        Assert.Equal("liff-id", settings.LiffId);
+        Assert.Equal("template", settings.TemplateName);
+        Assert.Equal(45, settings.PollSeconds);
+        Assert.True(settings.HasWebhook);
+        Assert.True(settings.HasMessaging);
+        Assert.True(settings.HasShop);
+    }
+
+    [Fact]
+    public void Get_WithNoKeysSet_LeavesEverythingUnconfiguredAndDefaultsPollSeconds()
+    {
+        var settings = Bind(new Dictionary<string, string?>());
+
+        Assert.Null(settings.ChannelSecret);
+        Assert.Null(settings.ChannelAccessToken);
+        Assert.Null(settings.LiffId);
+        Assert.Null(settings.TemplateName);
+        Assert.Equal(30, settings.PollSeconds);
+        Assert.False(settings.HasWebhook);
+        Assert.False(settings.HasMessaging);
+        Assert.False(settings.HasShop);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-5")]
+    public void Get_WithNonPositivePollSeconds_FallsBackTo30(string value)
+    {
+        var settings = Bind(new Dictionary<string, string?> { ["LINE_MINIAPP_POLL_SECONDS"] = value });
+
+        Assert.Equal(30, settings.PollSeconds);
+    }
+
+    [Fact]
+    public void Get_WithNonNumericPollSeconds_Throws()
+    {
+        Assert.Throws<InvalidOperationException>(
+            () => new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["LINE_MINIAPP_POLL_SECONDS"] = "not-a-number" })
+                .Build()
+                .Get<CompanionSettings>());
+    }
+}
 ```
 
-実行はTestタスク（`tasks.json` → `test`）または `dotnet test` から行います。実は、この空設定の
-テストを書いてみたことこそが、上記の `?? new()` がなぜ要るのかを浮かび上がらせてくれたのでした。
+`Bind` は、インメモリの `IConfiguration` を組み立てて `Program.cs` とまったく同じ形でバインドする、
+ごく小さなヘルパーです。各テストはそれぞれ1つの挙動を確認します:
+
+- **`Get_BindsEachPropertyFromItsFlatLineEnvVarStyleKey`** — すべての `LINE_*` キーが対応する
+  プロパティにマッピングされ、`PollSeconds` に与えた値が入り、3つの `Has*` フラグが `true` になること。
+- **`Get_WithNoKeysSet_LeavesEverythingUnconfiguredAndDefaultsPollSeconds`** — 何も設定しなければ、
+  文字列プロパティは `null` のまま、`PollSeconds` は既定の30、すべての `Has*` フラグは `false`
+  （「未設定でも必ず起動する」の土台）。
+- **`Get_WithNonPositivePollSeconds_FallsBackTo30`** — `0` や負の間隔は30にフォールバックし、setterの
+  クランプと一致すること——タイポで[第7章](07-reconciliation.md)の `PeriodicTimer` に不正な間隔を
+  渡してしまわないためです。
+- **`Get_WithNonNumericPollSeconds_Throws`** — 数値でない値はバインド時に例外を投げ、黙って無視され
+  ないこと——オペレータのタイポを大きな声で知らせます。
+
+実行はTestタスク（*Terminal → Run Task → test*、またはテストエクスプローラー）か、ターミナルから:
+
+```powershell
+dotnet test
+```
