@@ -8,17 +8,33 @@ using LineCompanionBot.Services;
 using Microsoft.Extensions.Configuration;
 
 // CompanionSettings is bound from its own configuration source — appsettings.json +
-// appsettings.{Environment}.json + environment variables — deliberately built without
-// AddCommandLine(), unlike the web host's own builder.Configuration (which includes it by
-// default). LINE_CHANNEL_SECRET/LINE_CHANNEL_ACCESS_TOKEN are security-sensitive and this
-// project's design has always been env-var-only for them; letting a stray "--LINE_CHANNEL_SECRET="
-// argv entry silently win would be a regression from that. Both the CLI "setup" path below (no
-// host at all) and the web host path use this same helper, so the contract is defined once.
-static IConfiguration BuildCompanionConfiguration(string environmentName) => new ConfigurationBuilder()
-    .AddJsonFile("appsettings.json", optional: true)
-    .AddJsonFile($"appsettings.{environmentName}.json", optional: true)
-    .AddEnvironmentVariables()
-    .Build();
+// appsettings.{Environment}.json + user secrets (Development only) + environment variables —
+// deliberately built without AddCommandLine(), unlike the web host's own builder.Configuration
+// (which includes it by default). LINE_CHANNEL_SECRET/LINE_CHANNEL_ACCESS_TOKEN are
+// security-sensitive: they come from user secrets in development or from environment variables,
+// never from the command line — letting a stray "--LINE_CHANNEL_SECRET=" argv entry silently win
+// would be a regression from that. Both the CLI "setup" path below (no host at all) and the web
+// host path use this same helper, so the contract is defined once.
+static IConfiguration BuildCompanionConfiguration(string environmentName)
+{
+    var configurationBuilder = new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json", optional: true)
+        .AddJsonFile($"appsettings.{environmentName}.json", optional: true);
+
+    // User secrets (`dotnet user-secrets set LINE_CHANNEL_SECRET ...`) are the framework-recommended
+    // local store for the LINE_* secrets in development — added here so both the web host and the
+    // "setup" path below pick them up, mirroring WebApplication.CreateBuilder's own Development-only
+    // user-secrets behavior but on this app's dedicated configuration. Placed before the environment-
+    // variable provider so an explicit env var still wins (standard .NET provider precedence).
+    if (string.Equals(environmentName, "Development", StringComparison.Ordinal))
+    {
+        configurationBuilder.AddUserSecrets(typeof(Program).Assembly, optional: true);
+    }
+
+    return configurationBuilder
+        .AddEnvironmentVariables()
+        .Build();
+}
 
 // "dotnet run -- setup": one-shot rich menu bootstrap. Handled before WebApplication is built —
 // this is a local admin action, never an HTTP endpoint reachable over a dev tunnel.

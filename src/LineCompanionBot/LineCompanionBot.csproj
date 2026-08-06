@@ -4,6 +4,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Enables `dotnet user-secrets` as the local dev store for the LINE_* secrets. Bound into
+         CompanionSettings by BuildCompanionConfiguration() in Program.cs (Development only). -->
+    <UserSecretsId>line-companion-bot-9f3c2a41</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

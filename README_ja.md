@@ -7,8 +7,8 @@
 ユーザーはLINEチャットでリッチメニューから相棒の世話をし（postback→Flex返信）、MINI Appショップで
 レア餌・スキンをIAP課金購入すると、購入完了がチャットへ通知されます。
 
-このアプリをどう組み立てたかを追体験できるハンズオンマニュアルが
-[`docs/manual/ja/tutorial.md`](docs/manual/ja/tutorial.md) にあります。
+このアプリをどう組み立てたか——`dotnet new` から一気通貫の動作確認まで、実装ステップごとに1章——を
+追体験できるハンズオンマニュアルが [`docs/manual/ja/`](docs/manual/ja/README.md) にあります。
 
 ## 必要環境
 
@@ -28,20 +28,23 @@
 
 ## 実行方法
 
+シークレットは開発時 `dotnet user-secrets` から読み込みます（環境変数でも可）。チュートリアルは
+Visual Studio Code（コミット済みの `.vscode/` 設定でF5起動/デバッグ）を前提にしていますが、CLIでも
+動きます:
+
 ```powershell
-cd src/LineCompanionBot
-$env:LINE_CHANNEL_SECRET       = "<チャネルシークレット>"
-$env:LINE_CHANNEL_ACCESS_TOKEN = "<チャネルアクセストークン>"
+dotnet user-secrets set LINE_CHANNEL_SECRET       "<チャネルシークレット>"       --project src/LineCompanionBot
+dotnet user-secrets set LINE_CHANNEL_ACCESS_TOKEN "<チャネルアクセストークン>" --project src/LineCompanionBot
 
 # 初回のみ: リッチメニューを作成しデフォルト設定
-dotnet run -- setup
+dotnet run --project src/LineCompanionBot -- setup
 
 # アプリ起動
-dotnet run
+dotnet run --project src/LineCompanionBot
 ```
 
-dev tunnelでのWebhook公開手順やMINI AppショップのLINE Developers Console設定を含む詳細は
-[`docs/manual/ja/tutorial.md`](docs/manual/ja/tutorial.md) を参照してください。
+VS Codeのセットアップ、dev tunnelでのWebhook公開手順、MINI AppショップのLINE Developers Console
+設定を含む詳細は [`docs/manual/ja/`](docs/manual/ja/README.md) を参照してください。
 
 ## ビルド・テスト
 
@@ -71,9 +74,10 @@ dotnet test
 
 ## ステータス
 
-`docs/manual/ja/tutorial.md`の全9章に沿って機能完成、さらに3役レビュー（code/security/test-arch、
-いずれもCONCERNS非ブロッキング）を実施し指摘を反映済み——何をどう直したかはチュートリアル末尾の
-「レビュー後の改善」節を参照。実LINEチャネル無しでローカル確認済み: 署名検証、postback→Flex
+[`docs/manual/ja/`](docs/manual/ja/README.md) の全9章に沿って機能完成、さらに3役レビュー
+（code/security/test-arch、いずれもCONCERNS非ブロッキング）を実施し指摘を反映済み——レビューの
+指摘は末尾に別節としてまとめず、該当する各章に畳み込んでいます。実LINEチャネル無しでローカル確認済み:
+署名検証、postback→Flex
 応答分岐、`setup`のCLIコマンド、ショップの全エンドポイント、購入照合のポーリング/リトライループが
 `api.line.me`へ到達すること。エンドツーエンドの完全な動作（チャット返信・リッチメニュー表示・
 実際のIAP購入完了）には実Messaging API + MINI Appチャネルの接続が必要です——チュートリアル

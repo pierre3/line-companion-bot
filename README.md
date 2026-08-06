@@ -8,8 +8,9 @@ to end. Users care for a virtual pet via LINE chat (rich menu → postback → F
 rare food / cosmetic skins through the MINI App shop using In-App Purchase (IAP); completed
 purchases are granted and the user is notified back in chat.
 
-A companion hands-on tutorial walking through how this app was built, step by step, lives at
-[`docs/manual/en/tutorial.md`](docs/manual/en/tutorial.md).
+A companion hands-on tutorial walking through how this app was built — from `dotnet new` to the
+full end-to-end loop, one chapter per implementation step — lives at
+[`docs/manual/en/`](docs/manual/en/README.md).
 
 ## Requirements
 
@@ -29,20 +30,24 @@ A companion hands-on tutorial walking through how this app was built, step by st
 
 ## Running
 
+Secrets are read from `dotnet user-secrets` in development (or from environment variables). The
+tutorial assumes Visual Studio Code (F5 to run/debug via the committed `.vscode/` config), but the
+CLI works too:
+
 ```powershell
-cd src/LineCompanionBot
-$env:LINE_CHANNEL_SECRET       = "<channel secret>"
-$env:LINE_CHANNEL_ACCESS_TOKEN = "<channel access token>"
+dotnet user-secrets set LINE_CHANNEL_SECRET       "<channel secret>"       --project src/LineCompanionBot
+dotnet user-secrets set LINE_CHANNEL_ACCESS_TOKEN "<channel access token>" --project src/LineCompanionBot
 
 # One-time: create and set the default rich menu
-dotnet run -- setup
+dotnet run --project src/LineCompanionBot -- setup
 
 # Start the app
-dotnet run
+dotnet run --project src/LineCompanionBot
 ```
 
-See [`docs/manual/en/tutorial.md`](docs/manual/en/tutorial.md) for the full walkthrough, including
-dev tunnel setup for the webhook and LINE Developers Console configuration for the MINI App shop.
+See [`docs/manual/en/`](docs/manual/en/README.md) for the full walkthrough, including VS Code
+setup, dev tunnel setup for the webhook, and LINE Developers Console configuration for the MINI App
+shop.
 
 ## Building / testing
 
@@ -71,10 +76,10 @@ dotnet test
 
 ## Status
 
-Feature-complete per `docs/manual/en/tutorial.md` (all 9 chapters), plus a 3-role review pass
-(code/security/test-arch, all CONCERNS-non-blocking) with fixes applied — see the tutorial's
-closing "Post-review refinements" section for what changed and why. Verified locally without a
-live LINE channel: signature verification, postback → Flex reply dispatch, the `setup` CLI verb,
-all shop endpoints, and the purchase-reconciliation poll/retry loop reaching `api.line.me`. Full
-end-to-end behavior (chat replies, rich menu rendering, a completed IAP purchase) requires wiring a
-real Messaging API + MINI App channel — see Chapter 9 of the tutorial.
+Feature-complete per [`docs/manual/en/`](docs/manual/en/README.md) (all 9 chapters), plus a 3-role
+review pass (code/security/test-arch, all CONCERNS-non-blocking) with fixes applied — the review
+findings are folded into the chapters they touch rather than kept as a separate section. Verified
+locally without a live LINE channel: signature verification, postback → Flex reply dispatch, the
+`setup` CLI verb, all shop endpoints, and the purchase-reconciliation poll/retry loop reaching
+`api.line.me`. Full end-to-end behavior (chat replies, rich menu rendering, a completed IAP
+purchase) requires wiring a real Messaging API + MINI App channel — see Chapter 9 of the tutorial.

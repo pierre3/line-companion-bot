@@ -1,0 +1,27 @@
+{
+  // F5 runs the bot with the debugger attached. Secrets come from `dotnet user-secrets`
+  // (see docs/manual/en/00-getting-started.md), so nothing sensitive lives in this file.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run LineCompanionBot",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/LineCompanionBot/bin/Debug/net10.0/LineCompanionBot.dll",
+      "args": [],
+      // cwd is the project folder so appsettings.json and assets/richmenu.png resolve by their
+      // relative paths exactly as they do under `dotnet run`.
+      "cwd": "${workspaceFolder}/src/LineCompanionBot",
+      "stopAtEntry": false,
+      "console": "integratedTerminal",
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "\\bNow listening on:\\s+(https?://\\S+)"
+      }
+    }
+  ]
+}

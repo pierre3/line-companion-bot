@@ -1,0 +1,8 @@
+{
+  // Recommended when opening this folder in VS Code — the C# Dev Kit brings the debugger,
+  // test runner, and solution view this tutorial assumes.
+  "recommendations": [
+    "ms-dotnettools.csdevkit",
+    "ms-dotnettools.csharp"
+  ]
+}

@@ -7,10 +7,15 @@
 
 # Editor / IDE
 .vs/
-.vscode/
 .idea/
 *.user
 *.suo
+
+# VS Code: the shared run/debug config is tracked (see .vscode below); personal files are not.
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
 
 # Test results
 [Tt]est[Rr]esult*/
