@@ -1,0 +1,29 @@
+# Normalize line endings. All text is stored as LF in the repo and checked out as LF,
+# so the working tree stays consistent across OSes regardless of a machine's core.autocrlf.
+* text=auto eol=lf
+
+# Source
+*.cs      text eol=lf diff=csharp
+*.csproj  text eol=lf
+*.slnx    text eol=lf
+*.props   text eol=lf
+*.targets text eol=lf
+
+# Web / docs / config
+*.md   text eol=lf
+*.json text eol=lf
+*.js   text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+
+# Windows-oriented scripts keep CRLF (PowerShell tolerates LF, but CRLF is the native convention)
+*.ps1  text eol=crlf
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+
+# Binary assets — never touch line endings
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
