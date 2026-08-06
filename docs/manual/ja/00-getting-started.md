@@ -11,8 +11,8 @@ LINE固有のコードに手を付ける前に、この章ではまず、空の�
 - **.NET 10 SDK** — `dotnet --version` で確認しておきましょう（`10.*` が表示されるはずです）。
 - **Visual Studio Code** と **C# Dev Kit** 拡張（`ms-dotnettools.csdevkit`）。このチュートリアルが
   前提にしているデバッガ・テストランナー・ソリューションビューを、これがまとめて用意してくれます。
-  リポジトリに同梱の `.vscode/extensions.json` が、フォルダを開いたときにインストールをうながして
-  くれます。
+  この後で自分で追加する `.vscode/extensions.json` を置いておけば、フォルダを開いたときにVS Codeが
+  インストールをうながしてくれます。
 - LINE Messaging APIチャネルとMINI Appチャネルは、[第9章](09-end-to-end.md)まで**要りません**。
   それ以前はすべて、LINEアカウント無しで動きます。
 
@@ -66,8 +66,12 @@ dotnet add src/LineCompanionBot package Line.OpenApi.MiniApp --version 0.2.0-pre
 
 ## VS Codeで開いて実行・デバッグを設定する
 
-フォルダを開きましょう（`code .`）。F5体験を裏で駆動しているのは `.vscode/` 配下の3ファイルで、
-リポジトリに同梱してあるので、新規クローンでもそのまま動きます:
+フォルダを開きましょう（`code .`）。このプロジェクトはまっさらな新規フォルダで一から作っていて——
+完成済みのリポジトリをクローンするわけではないので——`.vscode/` フォルダは自分で作り、F5体験を裏で
+駆動する3ファイルを置く必要があります。リファレンス実装リポジトリの
+[`.vscode/`](https://github.com/pierre3/line-companion-bot/tree/main/.vscode) ディレクトリにある
+`launch.json`・`tasks.json`・`extensions.json` を、そのまま自分のプロジェクトの `.vscode/` に
+コピーしてください:
 
 - **`launch.json`** — 単一の「Run LineCompanionBot」構成です。まずビルドし（`preLaunchTask`）、
   デバッガをアタッチしてアプリのDLLを起動し、`ASPNETCORE_ENVIRONMENT=Development` を設定し、

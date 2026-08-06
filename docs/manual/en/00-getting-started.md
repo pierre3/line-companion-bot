@@ -10,8 +10,9 @@ yet — it's the plain .NET project shape every later chapter builds on.
 
 - **.NET 10 SDK** — check with `dotnet --version` (should print `10.*`).
 - **Visual Studio Code** with the **C# Dev Kit** extension (`ms-dotnettools.csdevkit`). It brings
-  the debugger, test runner, and solution view this tutorial assumes. The `.vscode/extensions.json`
-  committed with this repo will prompt you to install it when you open the folder.
+  the debugger, test runner, and solution view this tutorial assumes. The recommended
+  `.vscode/extensions.json` you'll add below makes VS Code prompt you to install it when you open
+  the folder.
 - A LINE Messaging API channel and a MINI App channel are **not** needed until [Chapter 9](09-end-to-end.md).
   Everything before that runs with no LINE account.
 
@@ -65,8 +66,11 @@ polling.
 
 ## Open in VS Code and set up run/debug
 
-Open the folder (`code .`). Three files under `.vscode/` drive the F5 experience and ship with
-this repo so a fresh clone just works:
+Open the folder (`code .`). Because you're building this project in a brand-new folder — not
+cloning the finished one — create a `.vscode/` folder yourself and add the three files that drive
+the F5 experience. Copy them verbatim from the reference repository's
+[`.vscode/`](https://github.com/pierre3/line-companion-bot/tree/main/.vscode) directory —
+`launch.json`, `tasks.json`, and `extensions.json` — into your new project's `.vscode/`:
 
 - **`launch.json`** — a single "Run LineCompanionBot" configuration. It builds first (`preLaunchTask`),
   launches the app's DLL with the debugger attached, sets `ASPNETCORE_ENVIRONMENT=Development`, and

@@ -86,10 +86,12 @@ have to think about the BaseUrl ordering the low-level `MessagingClient.Blob` wo
 ## The blocking prerequisite: an actual image file
 
 `SetImageFromFileAsync` needs a real PNG on disk — there's no way around uploading actual pixels.
-This repo has no image-generation library (adding one to draw four boxes would be a
-disproportionate dependency), so the placeholder at `assets/richmenu.png` was generated once,
-out-of-band, with a throwaway PowerShell + `System.Drawing` script (a build-time artifact, not part
-of the app):
+Create an `assets/` folder in the app project and put a `richmenu.png` in it. You can copy the
+placeholder from the reference repository's
+[`src/LineCompanionBot/assets/richmenu.png`](https://github.com/pierre3/line-companion-bot/blob/main/src/LineCompanionBot/assets/richmenu.png),
+or make your own: this project has no image-generation library (adding one to draw four boxes would
+be a disproportionate dependency), so the placeholder was generated once, out-of-band, with a
+throwaway PowerShell + `System.Drawing` script (a build-time artifact, not part of the app):
 
 ```powershell
 Add-Type -AssemblyName System.Drawing

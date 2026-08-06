@@ -89,11 +89,13 @@ public static async Task RunAsync(CompanionSettings settings, string imagePath)
 ## ブロッキングな前提条件: 実際の画像ファイル
 
 `SetImageFromFileAsync`は、ディスク上に実在するPNGを必要とします——実ピクセルのアップロードを
-避けて通る道はありません。とはいえ、このリポジトリには画像生成ライブラリが入っていません
-（4つの四角を描くためだけに足すには、あまりに不釣り合いな依存でしょう）。そこで
-`assets/richmenu.png`のプレースホルダーは、アプリの一部ではない使い捨ての PowerShell +
-`System.Drawing`スクリプトで、一度だけout-of-bandで生成してあります（アプリの一部ではなく、
-あくまでビルド時の成果物という位置づけです）:
+避けて通る道はありません。アプリプロジェクトに`assets/`フォルダを作り、そこに`richmenu.png`を
+置いてください。リファレンス実装リポジトリの
+[`src/LineCompanionBot/assets/richmenu.png`](https://github.com/pierre3/line-companion-bot/blob/main/src/LineCompanionBot/assets/richmenu.png)
+からコピーしても、自分で用意してもかまいません。とはいえ、このリポジトリには画像生成ライブラリが
+入っていません（4つの四角を描くためだけに足すには、あまりに不釣り合いな依存でしょう）。そこで
+このプレースホルダーは、アプリの一部ではない使い捨ての PowerShell + `System.Drawing`スクリプトで、
+一度だけout-of-bandで生成したものです（あくまでビルド時の成果物という位置づけです）:
 
 ```powershell
 Add-Type -AssemblyName System.Drawing
