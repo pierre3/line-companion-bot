@@ -66,11 +66,10 @@ polling.
 
 ## Open in VS Code and set up run/debug
 
-Open the folder (`code .`). Because you're building this project in a brand-new folder — not
-cloning the finished one — create a `.vscode/` folder yourself and add the three files that drive
-the F5 experience. Copy them verbatim from the reference repository's
-[`.vscode/`](https://github.com/pierre3/line-companion-bot/tree/main/.vscode) directory —
-`launch.json`, `tasks.json`, and `extensions.json` — into your new project's `.vscode/`:
+Open the folder (`code .`). Create a `.vscode/` folder and add the three files that drive the F5
+experience — copy `launch.json`, `tasks.json`, and `extensions.json` from the reference
+repository's [`.vscode/`](https://github.com/pierre3/line-companion-bot/tree/main/.vscode)
+directory into your project's `.vscode/`:
 
 - **`launch.json`** — a single "Run LineCompanionBot" configuration. It builds first (`preLaunchTask`),
   launches the app's DLL with the debugger attached, sets `ASPNETCORE_ENVIRONMENT=Development`, and

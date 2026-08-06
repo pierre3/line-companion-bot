@@ -66,10 +66,9 @@ dotnet add src/LineCompanionBot package Line.OpenApi.MiniApp --version 0.2.0-pre
 
 ## VS Codeで開いて実行・デバッグを設定する
 
-フォルダを開きましょう（`code .`）。このプロジェクトはまっさらな新規フォルダで一から作っていて——
-完成済みのリポジトリをクローンするわけではないので——`.vscode/` フォルダは自分で作り、F5体験を裏で
-駆動する3ファイルを置く必要があります。リファレンス実装リポジトリの
-[`.vscode/`](https://github.com/pierre3/line-companion-bot/tree/main/.vscode) ディレクトリにある
+フォルダを開きます（`code .`）。`.vscode/` フォルダを作成し、F5実行を駆動する3ファイルを置きます。
+リファレンス実装リポジトリの
+[`.vscode/`](https://github.com/pierre3/line-companion-bot/tree/main/.vscode) にある
 `launch.json`・`tasks.json`・`extensions.json` を、そのまま自分のプロジェクトの `.vscode/` に
 コピーしてください:
 
