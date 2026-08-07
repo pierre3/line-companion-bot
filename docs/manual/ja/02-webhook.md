@@ -19,6 +19,15 @@
 `src/LineCompanionBot/Endpoints/WebhookEndpoints.cs` を作成します:
 
 ```csharp
+using Line.OpenApi.Messaging;
+using Line.OpenApi.Messaging.Generated.Api.Models;
+using Line.OpenApi.Messaging.Webhook;
+using Line.OpenApi.Messaging.Webhook.Generated.Models;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+
+namespace LineCompanionBot.Endpoints;
+
 public static class WebhookEndpoints
 {
     public static void MapWebhookEndpoint(this WebApplication app)

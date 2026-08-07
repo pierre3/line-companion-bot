@@ -13,6 +13,8 @@
 `src/LineCompanionBot/Services/PetGrowthEngine.cs` を作成します:
 
 ```csharp
+namespace LineCompanionBot.Services;
+
 public enum PetStage { Hatchling, Juvenile, Adult }
 
 public sealed record PetState(string UserId, string Name, double Hunger, double Happiness, int Xp, DateTimeOffset LastInteractionUtc);
@@ -93,6 +95,10 @@ public static class PetGrowthEngine
 ようにするための継ぎ目（seam）です。まずは `src/LineCompanionBot/Persistence/IPetStore.cs` を作成します:
 
 ```csharp
+using LineCompanionBot.Services;
+
+namespace LineCompanionBot.Persistence;
+
 public interface IPetStore
 {
     Task<PetState> GetOrCreateAsync(string userId, DateTimeOffset now, CancellationToken ct = default);
@@ -112,11 +118,18 @@ Dapper 実装を差し込むときも、呼び出し元には一切手を入れ�
 を作成します:
 
 ```csharp
-public static IServiceCollection AddInMemoryPersistence(this IServiceCollection services)
+using Microsoft.Extensions.DependencyInjection;
+
+namespace LineCompanionBot.Persistence.InMemory;
+
+public static class PersistenceServiceCollectionExtensions
 {
-    services.AddSingleton<IPetStore, InMemoryPetStore>();
-    // Chapters 6–7 add IInventoryStore, IOrderStore, and INotifierTokenStore here.
-    return services;
+    public static IServiceCollection AddInMemoryPersistence(this IServiceCollection services)
+    {
+        services.AddSingleton<IPetStore, InMemoryPetStore>();
+        // Chapter 6 adds IInventoryStore, IOrderStore, and INotifierTokenStore here.
+        return services;
+    }
 }
 ```
 

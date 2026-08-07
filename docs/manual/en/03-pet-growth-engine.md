@@ -13,6 +13,8 @@ matter.
 Create `src/LineCompanionBot/Services/PetGrowthEngine.cs`:
 
 ```csharp
+namespace LineCompanionBot.Services;
+
 public enum PetStage { Hatchling, Juvenile, Adult }
 
 public sealed record PetState(string UserId, string Name, double Hunger, double Happiness, int Xp, DateTimeOffset LastInteractionUtc);
@@ -91,6 +93,10 @@ interface under `Persistence/` — the seam a future database plugs into without
 Create `src/LineCompanionBot/Persistence/IPetStore.cs`:
 
 ```csharp
+using LineCompanionBot.Services;
+
+namespace LineCompanionBot.Persistence;
+
 public interface IPetStore
 {
     Task<PetState> GetOrCreateAsync(string userId, DateTimeOffset now, CancellationToken ct = default);
@@ -108,11 +114,18 @@ PetState>` wrapping those two methods in `Task.FromResult`. Register it through 
 create `Persistence/InMemory/PersistenceServiceCollectionExtensions.cs`:
 
 ```csharp
-public static IServiceCollection AddInMemoryPersistence(this IServiceCollection services)
+using Microsoft.Extensions.DependencyInjection;
+
+namespace LineCompanionBot.Persistence.InMemory;
+
+public static class PersistenceServiceCollectionExtensions
 {
-    services.AddSingleton<IPetStore, InMemoryPetStore>();
-    // Chapters 6–7 add IInventoryStore, IOrderStore, and INotifierTokenStore here.
-    return services;
+    public static IServiceCollection AddInMemoryPersistence(this IServiceCollection services)
+    {
+        services.AddSingleton<IPetStore, InMemoryPetStore>();
+        // Chapter 6 adds IInventoryStore, IOrderStore, and INotifierTokenStore here.
+        return services;
+    }
 }
 ```
 

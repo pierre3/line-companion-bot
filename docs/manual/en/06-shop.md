@@ -12,6 +12,8 @@ remaining persistence stores. This chapter also closes the Golden Kibble loop fr
 a demo:
 
 ```csharp
+namespace LineCompanionBot.Services;
+
 public sealed record ShopItem(string ProductId, string Name, string Description);
 
 public static class ShopCatalog
@@ -56,55 +58,69 @@ call `app.UseStaticFiles();` in `Program.cs` to serve `wwwroot/shop/*`, and `app
 next to `app.MapWebhookEndpoint();`.
 
 ```csharp
-var group = app.MapGroup("/api/shop");
+using Line.OpenApi.MiniApp;
+using Line.OpenApi.MiniApp.Models;
+using LineCompanionBot.Persistence;
+using LineCompanionBot.Services;
+using Microsoft.Extensions.Logging;
 
-group.MapGet("/config", (CompanionSettings settings) => Results.Ok(new { liffId = settings.LiffId }));
-group.MapGet("/catalog", () => Results.Ok(ShopCatalog.Items));
-group.MapGet("/inventory/{userId}", async (string userId, IInventoryStore inventory, CancellationToken ct) =>
-    Results.Ok(await inventory.GetAsync(userId, ct)));
+namespace LineCompanionBot.Endpoints;
 
-group.MapPost("/reserve", async (
-    ShopReserveRequest req, CompanionSettings settings, MiniAppClient miniApp,
-    IOrderStore orderStore, INotifierTokenStore notifierTokens, HttpContext http, CancellationToken ct) =>
+public static class ShopEndpoints
 {
-    if (!settings.HasMessaging)
-        return Results.Problem("LINE_CHANNEL_ACCESS_TOKEN is not configured.", statusCode: 503);
-    if (string.IsNullOrWhiteSpace(req.UserId) || string.IsNullOrWhiteSpace(req.ProductId) || string.IsNullOrWhiteSpace(req.LiffAccessToken))
-        return Results.Problem("userId, productId, and liffAccessToken are required.", statusCode: 400);
-
-    var item = ShopCatalog.Find(req.ProductId);
-    if (item is null) return Results.Problem($"Unknown productId '{req.ProductId}'.", statusCode: 404);
-
-    // Best-effort: notifier endpoints require a stateless/short-lived token this app's single
-    // channel token may not be. A failure here only means Chapter 8 falls back to push — never fatal.
-    try
+    public static void MapShopEndpoints(this WebApplication app)
     {
-        var notifierToken = await miniApp.IssueNotificationTokenAsync(settings.ChannelAccessToken!, req.LiffAccessToken);
-        if (notifierToken is not null) await notifierTokens.SaveAsync(req.UserId, notifierToken, ct);
-    }
-    catch (Exception ex) { app.Logger.LogWarning(ex, "Failed to issue a notifier token for {UserId}; will fall back to push.", req.UserId); }
+        var group = app.MapGroup("/api/shop");
 
-    var clientIp = http.Request.Headers["X-Forwarded-For"].ToString().Split(',')[0].Trim();
-    if (string.IsNullOrEmpty(clientIp)) clientIp = http.Connection.RemoteIpAddress?.ToString() ?? "0.0.0.0";
+        group.MapGet("/config", (CompanionSettings settings) => Results.Ok(new { liffId = settings.LiffId }));
+        group.MapGet("/catalog", () => Results.Ok(ShopCatalog.Items));
+        group.MapGet("/inventory/{userId}", async (string userId, IInventoryStore inventory, CancellationToken ct) =>
+            Results.Ok(await inventory.GetAsync(userId, ct)));
 
-    IapReserveResult? reserved;
-    try
-    {
-        reserved = await miniApp.ReserveProductAsync(req.LiffAccessToken, clientIp, req.ClientOs ?? "android", item.ProductId, item.Name);
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogWarning(ex, "Failed to reserve product {ProductId} for {UserId}.", item.ProductId, req.UserId);
-        return Results.Problem("Failed to reserve the purchase with LINE.", statusCode: 502);
-    }
-    if (reserved?.OrderId is null) return Results.Problem("LINE did not return an order id.", statusCode: 502);
+        group.MapPost("/reserve", async (
+            ShopReserveRequest req, CompanionSettings settings, MiniAppClient miniApp,
+            IOrderStore orderStore, INotifierTokenStore notifierTokens, HttpContext http, CancellationToken ct) =>
+        {
+            if (!settings.HasMessaging)
+                return Results.Problem("LINE_CHANNEL_ACCESS_TOKEN is not configured.", statusCode: 503);
+            if (string.IsNullOrWhiteSpace(req.UserId) || string.IsNullOrWhiteSpace(req.ProductId) || string.IsNullOrWhiteSpace(req.LiffAccessToken))
+                return Results.Problem("userId, productId, and liffAccessToken are required.", statusCode: 400);
 
-    // CancellationToken.None, not ct: LINE has already committed the order, so a client disconnecting
-    // now must not drop this record — reconciliation can only match the eventual purchaseComplete
-    // back to a user/product if this write lands.
-    await orderStore.RecordAsync(reserved.OrderId, req.UserId, item.ProductId, CancellationToken.None);
-    return Results.Ok(new { orderId = reserved.OrderId });
-});
+            var item = ShopCatalog.Find(req.ProductId);
+            if (item is null) return Results.Problem($"Unknown productId '{req.ProductId}'.", statusCode: 404);
+
+            // Best-effort: notifier endpoints require a stateless/short-lived token this app's single
+            // channel token may not be. A failure here only means Chapter 8 falls back to push — never fatal.
+            try
+            {
+                var notifierToken = await miniApp.IssueNotificationTokenAsync(settings.ChannelAccessToken!, req.LiffAccessToken);
+                if (notifierToken is not null) await notifierTokens.SaveAsync(req.UserId, notifierToken, ct);
+            }
+            catch (Exception ex) { app.Logger.LogWarning(ex, "Failed to issue a notifier token for {UserId}; will fall back to push.", req.UserId); }
+
+            var clientIp = http.Request.Headers["X-Forwarded-For"].ToString().Split(',')[0].Trim();
+            if (string.IsNullOrEmpty(clientIp)) clientIp = http.Connection.RemoteIpAddress?.ToString() ?? "0.0.0.0";
+
+            IapReserveResult? reserved;
+            try
+            {
+                reserved = await miniApp.ReserveProductAsync(req.LiffAccessToken, clientIp, req.ClientOs ?? "android", item.ProductId, item.Name);
+            }
+            catch (Exception ex)
+            {
+                app.Logger.LogWarning(ex, "Failed to reserve product {ProductId} for {UserId}.", item.ProductId, req.UserId);
+                return Results.Problem("Failed to reserve the purchase with LINE.", statusCode: 502);
+            }
+            if (reserved?.OrderId is null) return Results.Problem("LINE did not return an order id.", statusCode: 502);
+
+            // CancellationToken.None, not ct: LINE has already committed the order, so a client disconnecting
+            // now must not drop this record — reconciliation can only match the eventual purchaseComplete
+            // back to a user/product if this write lands.
+            await orderStore.RecordAsync(reserved.OrderId, req.UserId, item.ProductId, CancellationToken.None);
+            return Results.Ok(new { orderId = reserved.OrderId });
+        });
+    }
+}
 
 public sealed record ShopReserveRequest(string UserId, string ProductId, string LiffAccessToken, string? ClientOs);
 ```
