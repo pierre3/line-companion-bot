@@ -119,6 +119,40 @@ claude mcp add line -- line mcp
 使えます。ひとつ意図的な欠落があります——**画像アップロードは CLI 専用**です（バイナリを MCP 越しに流すのは
 非現実的なため）。したがって MCP 駆動のフローでも、`line richmenu image` のステップだけは CLI で実行します。
 
+## 番外編 — AIエージェントに定義と画像を作らせる（任意）
+
+エージェント（Claude Code）があるなら、もう一歩踏み込めます——`richmenu.json` と `richmenu.png` を*手で*
+用意する代わりに、エージェントに作らせるのです。ここで役割を混同しないのが肝心です: **JSON と画像を*作る*
+のはエージェント自身の能力**であって、`line` MCP サーバがやるのは*登録*（`line_richmenu_create` /
+`line_richmenu_set_default`）だけ、という切り分けです。3つのプロンプトで一気通貫にできます。
+
+**① 定義を書かせる。** 第4章の分岐と一致させる指示を必ず添えます——ここを外すと、タップしても何も
+起きません:
+
+> `src/LineCompanionBot/assets/richmenu.json` を作って。2500×1686 を4分割。左上=Feed / 右上=Play /
+> 左下=Status は `postback` で `data` をそれぞれ `action=feed` / `action=play` / `action=status`
+> （`WebhookEndpoints.cs` の `switch` case と一致させること）。右下=Shop は `uri` アクションで
+> `https://liff.line.me/YOUR_LIFF_ID`。`name` は "LineCompanionBot default menu"、`chatBarText` は
+> "Menu"、`selected` は true。
+
+**② プレースホルダ画像を作らせる。** 本文が使い捨ての System.Drawing スクリプトで PNG を起こしたのと
+同じことを、言葉で頼むだけです:
+
+> 上の `richmenu.json` のレイアウトに合わせて、2500×1686 のプレースホルダPNGを
+> `src/LineCompanionBot/assets/richmenu.png` に生成する使い捨てスクリプトを書いて実行して。4象限を
+> 薄く色分けし、中央に FEED / PLAY / STATUS / SHOP を大きく描いて（Windowsなら System.Drawing）。
+
+**③ そのまま MCP で登録させる。** これは実チャネル操作なのでトークンが要り、実行は第9章の仕事です:
+
+> `line` MCP が設定済みなら、続けて `line_richmenu_create` で登録して。画像アップロードだけは MCP に
+> 無いので、`line richmenu image <id> --file …` を CLI で実行し、最後に `line_richmenu_set_default` で
+> デフォルトに設定して（create → image → set-default の順で）。
+
+①②はトークン不要でいま試せますが、生成物は必ず目視してください——postback の `data` が
+`WebhookEndpoints.cs` の `case` と一致しているか、そして Shop の `uri` が `YOUR_LIFF_ID` プレースホルダ
+のまま残っているか（エージェントがそれらしい id を勝手に埋めていないか。実 id は第9章で入れます）。
+③の登録は CLI 手順とまったく同じく実トークンが要るので、[第9章](09-end-to-end.md)の仕事です。
+
 ## 試してみる
 
 `line richmenu` 系はどれもトークン付きで LINE を呼ぶので、ここで完全にオフラインで試せるのは

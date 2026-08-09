@@ -120,6 +120,43 @@ That exposes `line_richmenu_create`, `line_richmenu_set_default`, `line_richmenu
 as MCP tools. One deliberate gap: **image upload is CLI-only** (shipping binary through MCP is
 impractical), so even in an MCP-driven flow the `line richmenu image` step still runs via the CLI.
 
+## Aside — let an AI agent author the definition and image (optional)
+
+With an agent like Claude Code on hand you can go one step further: instead of hand-authoring
+`richmenu.json` and `richmenu.png`, have the agent produce them. Keep the roles straight — **authoring
+the JSON and image is the agent's own capability**, while the `line` MCP server only *registers*
+(`line_richmenu_create` / `line_richmenu_set_default`). Three prompts carry it end to end.
+
+**① Author the definition.** Always include the instruction to match Chapter 4's dispatch — miss this
+and taps do nothing:
+
+> Create `src/LineCompanionBot/assets/richmenu.json`. A 2500×1686 canvas split into four. Top-left =
+> Feed, top-right = Play, bottom-left = Status are `postback` areas with `data` set to `action=feed`
+> / `action=play` / `action=status` respectively (match the `switch` cases in `WebhookEndpoints.cs`).
+> Bottom-right = Shop is a `uri` action to `https://liff.line.me/YOUR_LIFF_ID`. Set `name` to
+> "LineCompanionBot default menu", `chatBarText` to "Menu", and `selected` to true.
+
+**② Generate the placeholder image.** The same thing the chapter did with a throwaway System.Drawing
+script — just asked for in words:
+
+> Write and run a throwaway script that generates a 2500×1686 placeholder PNG at
+> `src/LineCompanionBot/assets/richmenu.png`, matching the layout of the `richmenu.json` above. Tint
+> the four quadrants faintly and draw FEED / PLAY / STATUS / SHOP large in the center (System.Drawing
+> on Windows).
+
+**③ Register it via MCP.** This one touches a real channel, so it needs a token and belongs to
+Chapter 9:
+
+> With the `line` MCP configured, go on to register it with `line_richmenu_create`. Image upload
+> isn't in MCP, so run `line richmenu image <id> --file …` via the CLI, then set it as the default
+> with `line_richmenu_set_default` (in that order: create → image → set-default).
+
+Steps ① and ② are token-free, so you can try them now — but eyeball what comes out: that the postback
+`data` matches the `case`s in `WebhookEndpoints.cs`, and that Shop's `uri` still carries the
+`YOUR_LIFF_ID` placeholder (that the agent didn't invent a plausible-looking id — you fill the real
+one in Chapter 9). Registration in ③ needs a real token exactly as the CLI steps do, so it's
+[Chapter 9](09-end-to-end.md)'s job.
+
 ## Try it
 
 Every `line richmenu` command calls LINE with your token, so there's nothing to run fully offline
