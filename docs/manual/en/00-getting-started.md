@@ -16,6 +16,13 @@ yet — it's the plain .NET project shape every later chapter builds on.
 - A LINE Messaging API channel and a MINI App channel are **not** needed until [Chapter 9](09-end-to-end.md).
   Everything before that runs with no LINE account.
 
+> **Optional — go live early.** This tutorial is offline-first: Chapters 1–8 verify locally with no
+> LINE account. If you'd rather see replies and the rich menu on your own phone *as* you build, set
+> up a Messaging API channel + access token and a dev tunnel up front (the console and tunnel steps
+> are in [Chapter 9](09-end-to-end.md)) and point the channel's webhook at your tunnel from Chapter 2
+> on. Two caveats: the shop/IAP half still needs a review-gated MINI App channel (Chapters 6/9), and
+> if you pause on a breakpoint the ~1-minute reply token can expire before the card is sent.
+
 ## Create the solution and projects
 
 From the directory that will hold the repo:
