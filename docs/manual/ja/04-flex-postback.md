@@ -169,6 +169,17 @@ try/catch で包んであります——失敗してもログに残すだけで�
 
 ## 試してみる — postbackをシミュレートする
 
+イベントループは `messaging` が `null` のときは全イベントをスキップします（`|| messaging is null` の
+ガード）。`MessagingClient` は `LINE_CHANNEL_ACCESS_TOKEN` が設定されているときだけ登録されるので、
+第2章のシークレットだけを入れた状態では、ハンドラは `switch` に到達する前に `continue` してしまい、何も
+分岐されません。そこで、クライアントが登録されて分岐が実際に動くよう、ダミーのアクセストークンも設定して
+おきます（`api.line.me` への返信は——トークンが偽物なので——やはり失敗しますが、それこそがここで観察
+したいことです）:
+
+```powershell
+dotnet user-secrets set LINE_CHANNEL_ACCESS_TOKEN "demo-token" --project src/LineCompanionBot
+```
+
 （第2章で入れた）`LINE_CHANNEL_SECRET` をuser-secretsに残したまま、今度は `message` ではなく `postback`
 イベントを運ぶペイロードを、自分の手で署名してみましょう:
 

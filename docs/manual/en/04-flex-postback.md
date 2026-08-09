@@ -167,6 +167,17 @@ no attribute) into the store and reply calls.
 
 ## Try it — simulate a postback
 
+The event loop skips every event when `messaging` is `null` (the `|| messaging is null` guard):
+`MessagingClient` is only registered when `LINE_CHANNEL_ACCESS_TOKEN` is set, so with only the
+Chapter 2 secret in place the handler would `continue` past the `switch` without dispatching
+anything. Set a placeholder access token too, so the client is registered and the dispatch actually
+runs (the reply to `api.line.me` still fails — the token is fake — which is exactly what we want to
+watch happen):
+
+```powershell
+dotnet user-secrets set LINE_CHANNEL_ACCESS_TOKEN "demo-token" --project src/LineCompanionBot
+```
+
 With `LINE_CHANNEL_SECRET` still in user-secrets (from Chapter 2), self-sign a payload carrying a
 `postback` event instead of a `message`:
 
