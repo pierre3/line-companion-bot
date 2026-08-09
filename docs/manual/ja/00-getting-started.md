@@ -74,10 +74,10 @@ dotnet add src/LineCompanionBot package Line.OpenApi.MiniApp --version 0.2.0-pre
 
 - **`launch.json`** — 単一の「Run LineCompanionBot」構成です。まずビルドし（`preLaunchTask`）、
   デバッガをアタッチしてアプリのDLLを起動し、`ASPNETCORE_ENVIRONMENT=Development` を設定し、
-  プロジェクトフォルダを作業ディレクトリとして実行します。おかげで `appsettings.json`（および後の
-  `assets/richmenu.png`）が相対パスで解決されます。
-- **`tasks.json`** — `build`・`test`・`setup-richmenu` の各タスク（最後のものは
-  [第5章](05-rich-menu.md)のCLIコマンドをラップしたものです）。
+  プロジェクトフォルダを作業ディレクトリとして実行します。おかげで `appsettings.json` が相対パスで
+  解決されます。
+- **`tasks.json`** — `build`・`test` の各タスク。（第5章のリッチメニュー登録は、VS Code タスクではなく
+  独立した `line` グローバルツールを使います。）
 - **`extensions.json`** — C# Dev Kitを推奨します。
 
 ## シークレット: チェックインするファイルではなく `dotnet user-secrets` を使う

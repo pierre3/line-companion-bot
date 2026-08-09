@@ -73,10 +73,10 @@ directory into your project's `.vscode/`:
 
 - **`launch.json`** — a single "Run LineCompanionBot" configuration. It builds first (`preLaunchTask`),
   launches the app's DLL with the debugger attached, sets `ASPNETCORE_ENVIRONMENT=Development`, and
-  runs with the project folder as the working directory so `appsettings.json` (and later
-  `assets/richmenu.png`) resolve by their relative paths.
-- **`tasks.json`** — `build`, `test`, and `setup-richmenu` tasks (the last one wraps the CLI verb
-  from [Chapter 5](05-rich-menu.md)).
+  runs with the project folder as the working directory so `appsettings.json` resolves by its
+  relative path.
+- **`tasks.json`** — `build` and `test` tasks. (Chapter 5 registers the rich menu with the separate
+  `line` global tool, not a VS Code task.)
 - **`extensions.json`** — recommends the C# Dev Kit.
 
 ## Secrets: use `dotnet user-secrets`, not a checked-in file

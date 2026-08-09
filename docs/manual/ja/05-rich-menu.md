@@ -1,167 +1,135 @@
 [← 第4章](04-flex-postback.md) | [索引](README.md) | [第6章 →](06-shop.md)
 
-# 第5章 — リッチメニューのブートストラップ (`dotnet run -- setup`)
+# 第5章 — `line` ツールでリッチメニューを登録する
 
-**このステップで作るもの:** リッチメニューを作成し、その画像をアップロードし、アカウントの
-デフォルトに設定する使い捨てのCLIコマンドです——第4章で用意したpostback文字列（`"action=feed"`等）を、
-ユーザーが実際に指でタップできるものへと変える、最後のピースにあたります。
+**このステップで作るもの:** 今回はアプリのコードではありません——リッチメニューの*定義*（`richmenu.json`）
+を用意し、それを `Line.OpenApi.Tools` というコマンドラインツールで LINE に登録します。これが、第4章の
+postback 文字列（`"action=feed"` 等）を、ユーザーが実際に指でタップできるものへと変える最後のピースです。
 
-**なぜHTTPエンドポイントではなくCLIコマンドなのでしょうか。** 理由はシンプルで、*デフォルト*の
-リッチメニュー設定がアカウント全体に——つまりチャネルの全ユーザーに——及ぶからです。これは
-れっきとした管理操作ですが、このアプリはWebhookを機能させるためにdev tunnel経由でインターネットに
-公開されています。ここで仮に`POST /setup`エンドポイントを作ってしまうと、破壊的で未認証の管理操作を、
-Webhookと同じ公開面にそのまま並べることになってしまいます。そこで`WebApplication`が構築される
-*前*に`args[0]`で分岐させ、この操作を厳密にローカル限定へと留めておくわけです。
+**なぜアプリのコードではなくツールなのか。** アカウント全体の*デフォルト*リッチメニュー設定は、動いている
+Bot とは独立した、一度きりの管理操作です——チャネルの全ユーザーに影響し、一度設定すればあとは変わりません。
+これは次の2つのどちらであってもいけません:
 
-## Program.cs のsetupコマンド
+- **HTTPエンドポイントにしない。** このアプリは Webhook を機能させるため dev tunnel 経由でインターネットに
+  公開されています。`POST /setup` を作れば、破壊的でアカウント全体に及ぶ未認証の管理操作を、Webhook と同じ
+  公開面に並べることになります。
+- **Bot プロセスに埋め込む verb にもしない。** リッチメニューは Webhook の処理とは何の関係もありません。
+  一度実行したら二度と使わない管理芸を Bot アプリに覚えさせるより、Bot がすでに消費しているのと同じライブラリ
+  ファミリに付属する CLI——`Line.OpenApi.Tools`——を使います。リッチメニューの管理は `line richmenu ...`
+  コマンド1つになり、Bot アプリは Bot に徹したままでいられます。
 
-`Program.cs`の一番上、`WebApplication.CreateBuilder`より前に、コマンドの分岐を足していきます。
-第1章と同じ`BuildCompanionConfiguration`ヘルパーを再利用しているので、user-secretsや環境変数は
-Webホストのときとまったく同じように解決されます:
+## ツールをインストールする
 
-```csharp
-if (args.Length > 0 && args[0] == "setup")
-{
-    var setupEnvironmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
-    var setupSettings = BuildCompanionConfiguration(setupEnvironmentName).Get<CompanionSettings>() ?? new CompanionSettings();
-    await RichMenuBootstrapper.RunAsync(setupSettings, "assets/richmenu.png");
-    return;
-}
+`Line.OpenApi.Tools` は .NET グローバルツール（コマンド名 `line`）であり、同時に MCP サーバでもあります:
+
+```powershell
+dotnet tool install -g Line.OpenApi.Tools --version 0.2.0-preview
 ```
 
-`RichMenuBootstrapper` は `LineCompanionBot.Services` にあるので、`Program.cs` の冒頭に
-`using LineCompanionBot.Services;` を追加してください。
+`line --help` でコマンドグループ（`richmenu`、`config` …）が並べば成功です。（`line-dotnet` のソースを
+チェックアウトしているなら、インストールせずに `dotnet run --project path/to/line-dotnet/tools/Line.OpenApi.Tools -- <command>`
+としても同じことができます。）
 
-というのも、このパスにはホストが存在せず、そのまま使い回せるアンビエントな`IConfiguration`も
-無いからです——共有ヘルパー経由で自前に組み立てているのは、まさにこのヘルパーが存在する理由
-そのものだと言えます。環境名を`ASPNETCORE_ENVIRONMENT`から取得している点には少し注意して
-ください。`.vscode/tasks.json`の`setup-richmenu`タスクがこれを`Development`に設定してくれるので、
-user-secretsに入れたトークンがきちんと拾われます。
+## リッチメニューの定義
 
-## ブートストラッパー
+`line richmenu create` は JSON 定義——LINE 標準のリッチメニュー形状——を受け取ります。
+`src/LineCompanionBot/assets/richmenu.json` を作成します:
 
-`src/LineCompanionBot/Services/RichMenuBootstrapper.cs`を作っていきましょう:
-
-```csharp
-using Line.OpenApi.Messaging;
-using Line.OpenApi.Messaging.Generated.Api.Models;
-
-namespace LineCompanionBot.Services;
-
-// One-shot CLI bootstrap ("dotnet run -- setup"), not an HTTP endpoint: creating/replacing the
-// account-wide default rich menu is an admin action that shouldn't be reachable over a dev tunnel.
-public static class RichMenuBootstrapper
+```json
 {
-    private const int MenuWidth = 2500;
-    private const int MenuHeight = 1686;
-    private const int HalfWidth = MenuWidth / 2;
-    private const int HalfHeight = MenuHeight / 2;
-
-    public static async Task RunAsync(CompanionSettings settings, string imagePath)
+  "size": { "width": 2500, "height": 1686 },
+  "selected": true,
+  "name": "LineCompanionBot default menu",
+  "chatBarText": "Menu",
+  "areas": [
     {
-        if (!settings.HasMessaging)
-        {
-            Console.Error.WriteLine("LINE_CHANNEL_ACCESS_TOKEN is not set — cannot create a rich menu.");
-            return;
-        }
-
-        if (!settings.HasShop)
-        {
-            Console.WriteLine("Warning: LINE_MINIAPP_LIFF_ID is not set — the Shop button will link to a placeholder URL.");
-        }
-
-        var shopUri = settings.HasShop ? $"https://liff.line.me/{settings.LiffId}" : "https://line.me/";
-
-        var request = new RichMenuRequest
-        {
-            Name = "LineCompanionBot default menu",
-            ChatBarText = "Menu",
-            Selected = true,
-            Size = new RichMenuSize { Width = MenuWidth, Height = MenuHeight },
-            Areas = new List<RichMenuArea>
-            {
-                Area(0, 0, "action=feed"),
-                Area(HalfWidth, 0, "action=play"),
-                Area(0, HalfHeight, "action=status"),
-                AreaUri(HalfWidth, HalfHeight, shopUri),
-            },
-        };
-
-        var richMenu = RichMenuClient.CreateWithStaticToken(settings.ChannelAccessToken!);
-        var richMenuId = await richMenu.CreateAsync(request);
-        if (richMenuId is null)
-        {
-            Console.Error.WriteLine("Failed to create the rich menu (no id returned).");
-            return;
-        }
-
-        await richMenu.SetImageFromFileAsync(richMenuId, imagePath);
-        await richMenu.SetDefaultAsync(richMenuId);
-
-        Console.WriteLine($"Rich menu created and set as default: {richMenuId}");
+      "bounds": { "x": 0, "y": 0, "width": 1250, "height": 843 },
+      "action": { "type": "postback", "data": "action=feed" }
+    },
+    {
+      "bounds": { "x": 1250, "y": 0, "width": 1250, "height": 843 },
+      "action": { "type": "postback", "data": "action=play" }
+    },
+    {
+      "bounds": { "x": 0, "y": 843, "width": 1250, "height": 843 },
+      "action": { "type": "postback", "data": "action=status" }
+    },
+    {
+      "bounds": { "x": 1250, "y": 843, "width": 1250, "height": 843 },
+      "action": { "type": "uri", "uri": "https://liff.line.me/YOUR_LIFF_ID" }
     }
-
-    private static RichMenuArea Area(int x, int y, string postbackData) => new()
-    {
-        Bounds = new RichMenuBounds { X = x, Y = y, Width = HalfWidth, Height = HalfHeight },
-        Action = new PostbackAction { Data = postbackData },
-    };
-
-    private static RichMenuArea AreaUri(int x, int y, string uri) => new()
-    {
-        Bounds = new RichMenuBounds { X = x, Y = y, Width = HalfWidth, Height = HalfHeight },
-        Action = new URIAction { Uri = uri },
-    };
+  ]
 }
 ```
 
-`Area` / `AreaUri`は、4つの象限の`RichMenuArea`を組み立てるための小さなヘルパーです。このうち
-3つは`PostbackAction`を使っていて（Webhookが既に分岐させている`"action=..."`文字列と対応します）、
-4つ目だけはMINI AppショップのLIFF URLを指す`URIAction`を使います——ショップボタンにpostbackは
-必要なく、LINEは単純にそのURLを開くだけだからです。
+2500×1686 のキャンバスを四分割した、4つのタップ領域です:
 
-`RichMenuClient.CreateWithStaticToken(...)`は、リッチメニュー系エンドポイントのファサードです。
-ここで特に効いてくるのが、画像のアップロードがLINEの*data*ホスト（`api-data.line.me`）を叩く、
-という事情です。このホストはクライアント構築より前に設定しておく必要があるのですが——ファサードが
-内部でそれを面倒みてくれるおかげで、低レベルの`MessagingClient.Blob`が要求するBaseUrlの設定順序を、
-こちらで意識せずに済みます。
+- **Feed / Play / Status** は `postback` 領域で、その `data` は第4章でWebhookが分岐に使っている文字列
+  ([第4章](04-flex-postback.md)) そのものです——ここでようやく、その文字列に送り手が付きます。この `data`
+  と `WebhookEndpoints.cs` の `switch` case は手動で対応させているので、片方の名前を変えたらもう片方も
+  変えないと、タップしても何も起きません。
+- **Shop** は `uri` 領域で、MINI App の LIFF URL を開きます（postback は送らず、LINE がURLを開くだけ）。
+  `YOUR_LIFF_ID` はあなたの MINI App の LIFF id に置き換えてください——[第6章](06-shop.md)/
+  [第9章](09-end-to-end.md) の後に手に入ります。
 
-## ブロッキングな前提条件: 実際の画像ファイル
+## 画像
 
-`SetImageFromFileAsync`は、ディスク上に実在するPNGを必要とします——実ピクセルのアップロードを
-避けて通る道はありません。アプリプロジェクトに`assets/`フォルダを作り、そこに`richmenu.png`を
-置いてください。リファレンス実装リポジトリの
+`richmenu.json` はタップ領域を記述しますが、メニューには背景画像——ディスク上の実物のPNG——も必要です。
+実際のピクセルをアップロードする以外に道はありません。`src/LineCompanionBot/assets/` に `richmenu.png` を
+置いてください。参照リポジトリの
 [`src/LineCompanionBot/assets/richmenu.png`](https://github.com/pierre3/line-companion-bot/blob/main/src/LineCompanionBot/assets/richmenu.png)
-からコピーしても、自分で用意してもかまいません。とはいえ、このリポジトリには画像生成ライブラリが
-入っていません（4つの四角を描くためだけに足すには、あまりに不釣り合いな依存でしょう）。そこで
-このプレースホルダーは、アプリの一部ではない使い捨ての PowerShell + `System.Drawing`スクリプトで、
-一度だけout-of-bandで生成したものです（あくまでビルド時の成果物という位置づけです）:
+からプレースホルダをコピーしても、自分で作ってもかまいません。このプロジェクトには画像生成ライブラリが
+無い（四角を4つ描くために足すのは不釣り合いな依存です）ので、プレースホルダは使い捨ての PowerShell +
+`System.Drawing` スクリプトで一度だけ、アプリの外で生成しました（ビルド時の成果物であって、アプリの一部
+ではありません）:
 
 ```powershell
 Add-Type -AssemblyName System.Drawing
-# ...draw four labeled 1250x843 quadrants (FEED / PLAY / STATUS / SHOP) on a 2500x1686 canvas...
+# ...2500x1686 のキャンバスに、ラベル付きの 1250x843 四分割（FEED / PLAY / STATUS / SHOP）を描く...
 $bmp.Save("assets/richmenu.png", [System.Drawing.Imaging.ImageFormat]::Png)
 ```
 
-デモの範囲を超えて使うのであれば、このファイルを実際のアートワークに差し替えてください。その際、
-`.csproj`がこのファイルを出力先へコピーするようにしておくのを忘れずに——さもないと、ビルド
-ディレクトリから実行したときに相対パス`"assets/richmenu.png"`が解決できなくなってしまいます。
+デモを超えて使う前に、本物のアートワークに差し替えてください。埋め込みアセットとは違い、ツールは画像パスを
+明示的に（`--file` で）受け取るので、`.csproj` でのコピー設定に悩む必要はありません。
 
-## 動かしてみる — 配線の確認に実チャネルは不要
+## 登録する
 
-**setup-richmenu**タスクを実行するか（VS Code: *Terminal → Run Task → setup-richmenu*）、
-あるいはターミナルから直接実行してみましょう:
+3ステップとも、チャネルアクセストークンが要ります。渡し方はお好みで——環境変数
+（`LINE_CHANNEL_ACCESS_TOKEN`）、コマンドごとの `--channel-token`、または保存済みプロファイル
+（`line config set default --token "..."`、`~/.line/config.json` に保存）のいずれでも。いずれの方法でも
+トークンはシェル環境か平文ファイルに残るので、失効させられるトークンを使い、用が済んだら消しておくと
+よいです。そのうえで、リポジトリ直下から:
 
 ```powershell
-dotnet run --project src/LineCompanionBot -- setup
+# 1. 定義からメニューを作成——新しいリッチメニュー id が出力される。
+line richmenu create --file src/LineCompanionBot/assets/richmenu.json
+
+# 2. その id に背景画像をアップロード。
+line richmenu image <richMenuId> --file src/LineCompanionBot/assets/richmenu.png
+
+# 3. チャネルの全ユーザーのデフォルトメニューに設定。
+line richmenu set-default <richMenuId>
 ```
 
-トークンを未設定のまま実行すると、こうなります:
+`create` が出力する `richMenuId` を、ステップ2・3に貼り付けます。画像アップロードは LINE の*データ*ホスト
+（`api-data.line.me`）——コントロール系の呼び出しとは別ホスト——へ向かいますが、ツールがルーティングして
+くれるので、低レベルクライアントで自前に設定する必要のある BaseUrl の切り替えを気にせずに済みます。
 
-```
-LINE_CHANNEL_ACCESS_TOKEN is not set — cannot create a rich menu.
+## 同じツールを MCP サーバとして使う（任意）
+
+`line` は MCP サーバも兼ねているので、シェルの代わりに Claude Code から同じ操作を駆動できます:
+
+```powershell
+claude mcp add line -- line mcp
 ```
 
-このコマンドはWebホストが起動する前に分岐して、そのままクリーンに終了しました——サーバは
-立ち上がらず、クラッシュもしません。実チャネルアクセストークンに対して実行すれば（第9章）、
-今度は実際にメニューが作成・有効化されることになります。
+これで `line_richmenu_create`、`line_richmenu_set_default`、`line_richmenu_list` などが MCP ツールとして
+使えます。ひとつ意図的な欠落があります——**画像アップロードは CLI 専用**です（バイナリを MCP 越しに流すのは
+非現実的なため）。したがって MCP 駆動のフローでも、`line richmenu image` のステップだけは CLI で実行します。
+
+## 試してみる
+
+`line richmenu` 系はどれもトークン付きで LINE を呼ぶので、ここで完全にオフラインで試せるのは
+`line --help` と `richmenu.json` の目視くらいです。メニューを実際に登録する——上の3コマンド——のは、実チャネルを
+配線する[第9章](09-end-to-end.md)の仕事です。すでにチャネルアクセストークンをお持ちなら、いま実行すれば、
+ボットを友だち追加した瞬間にメニュー（Feed / Play / Status / Shop）が現れます。

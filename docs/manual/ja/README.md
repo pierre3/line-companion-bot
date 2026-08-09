@@ -34,7 +34,7 @@
 | 2 | [Webhook受信 + 署名検証](02-webhook.md) | `POST /webhook` — HMAC署名を検証し、常に200をackする |
 | 3 | [Pet状態と成長エンジン](03-pet-growth-engine.md) | 純粋なペットシミュレーションを`IPetStore`の継ぎ目の裏に置き、ユニットテストする |
 | 4 | [Flex応答とpostbackディスパッチ](04-flex-postback.md) | ステータスカードと、リッチメニューのpostbackからペットの世話を駆動する |
-| 5 | [リッチメニューのブートストラップ](05-rich-menu.md) | メニューを作成・有効化する使い捨ての`setup` CLIコマンド |
+| 5 | [リッチメニューの登録](05-rich-menu.md) | `line` CLI/MCP ツール（`Line.OpenApi.Tools`）でメニューを登録する |
 | 6 | [MINI Appショップ: フロントエンドとバックエンド](06-shop.md) | ショップページ、reserve契約、IAPの受け渡し |
 | 7 | [購入照合](07-reconciliation.md) | 完了した購入にアイテムを付与するポーリング`BackgroundService` |
 | 8 | [ユーザーへの通知](08-notify.md) | サービスメッセージと、既定経路であるpushフォールバック |

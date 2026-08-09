@@ -3,7 +3,7 @@
 # 第9章 — 実チャネルでのエンドツーエンドとトラブルシューティング
 
 これまでの各章では、それぞれの部品をローカルで確かめてきました——署名のラウンドトリップ、postbackの
-ディスパッチ、Flexの構築、`setup` verb、ショップのHTTP契約、ポーリングと再試行のループ——いずれも
+ディスパッチ、Flexの構築、ショップのHTTP契約、ポーリングと再試行のループ——いずれも
 実LINEチャネル抜きで、です。さて、この章はその残りの部分にあたります。すべてを一緒に動かすために
 実チャネルを配線すること、そして——正直なところ——何がうまくいかなくなりがちか、という話です。
 
@@ -33,14 +33,23 @@ dotnet user-secrets set LINE_MINIAPP_LIFF_ID      "<liff id>"              --pro
 # dotnet user-secrets set LINE_MINIAPP_TEMPLATE_NAME "<approved template name>" --project src/LineCompanionBot
 ```
 
-`BuildCompanionConfiguration` が user-secrets を読むのは `Development` 環境のときだけです。とはいえ
-F5の起動構成も `setup-richmenu` タスクも `ASPNETCORE_ENVIRONMENT=Development` を設定してくれるので、
-どちらの経路からでもこれらはちゃんと拾われます。
+`BuildCompanionConfiguration` が user-secrets を読むのは `Development` 環境のときだけで、F5の起動構成が
+`ASPNETCORE_ENVIRONMENT=Development` を設定するので、アプリはこれらを拾います。（下記の `line` ツールは
+user-secrets ではなく、環境変数 / `--channel-token` / `line config` プロファイルからチャネルアクセス
+トークンを読みます。）
 
 ## 立ち上げる
 
-1. **リッチメニューを一度だけ作成する:** **setup-richmenu** タスクを実行します（*Terminal → Run
-   Task → setup-richmenu*）。うまくいけばリッチメニューidが表示されるはずです。
+1. **リッチメニューを一度だけ作成・設定する** ——`line` ツールを使います（[第5章](05-rich-menu.md)）。
+   先に `richmenu.json` の `YOUR_LIFF_ID` を自分の LIFF id へ置き換え、ツールにトークンを渡し
+   （user-secrets は読みません）、3ステップを実行します。`create` が出力する id を次の2つに渡します:
+
+   ```powershell
+   $env:LINE_CHANNEL_ACCESS_TOKEN = "<channel access token>"
+   line richmenu create --file src/LineCompanionBot/assets/richmenu.json   # 新しい id が出力される
+   line richmenu image  <richMenuId> --file src/LineCompanionBot/assets/richmenu.png
+   line richmenu set-default <richMenuId>
+   ```
 2. **アプリを起動する:** **F5** を押すだけです。
 3. **devトンネルで公開する** ——LINEがこちらのwebhookに到達できるようにするためです:
 
@@ -55,7 +64,7 @@ F5の起動構成も `setup-richmenu` タスクも `ASPNETCORE_ENVIRONMENT=Devel
 ## フルループを試す
 
 1. Botを友だち追加します。すると、リッチメニュー（Feed / Play / Status / Shop）が即座に表示される
-   はずです——setupタスクが効いている、何よりの証拠ですね。
+   はずです——`line richmenu set-default` が効いている、何よりの証拠ですね。
 2. **Feed / Play / Status** をタップしてみます——それぞれ約1秒でFlexのステータスカードが返ってきます。
    Hungerが低い状態（減衰はリアルタイムです）で **Play** をタップすると、例の拒否カードが顔を出します。
 3. **Shop** をタップしてMINI Appを開きます。カタログが読み込まれ、アイテムを購入できます
@@ -71,16 +80,17 @@ F5の起動構成も `setup-richmenu` タスクも `ASPNETCORE_ENVIRONMENT=Devel
 
 ## トラブルシューティング
 
-- **リッチメニューが出ない / タップしても何も起きない。** まず、setupタスクがリッチメニューidを表示
-  したこと（「not set」メッセージではないこと）を確かめてください。そのうえで `GET /` が
+- **リッチメニューが出ない / タップしても何も起きない。** まず、`line richmenu set-default` が成功
+  していること（`line richmenu get-default` が id を返すこと）を確かめてください。そのうえで `GET /` が
   `messaging: enabled` を報告しているかも見ておきます。
 - **`/webhook` で401。** これは `LINE_CHANNEL_SECRET` がチャネルのものと一致していないサインです。
 - **Feed/Play/Status が何もしない。** ログに "Failed to reply to a postback event" が出ていないか
   確認します——たいていは、テストがもたついて期限切れになったreplyトークン（有効期間は約1分です）か、
   欠落した/無効なアクセストークンが原因です。
-- **Shopボタンが空白ページを開く。** `LINE_MINIAPP_LIFF_ID` が間違っているか、MINI Appチャネルの
-  エンドポイントURLがこのアプリの `/shop/` パスを向いていないかのどちらかです——コードの問題では
-  なく、コンソール設定の問題ですね。
+- **Shopボタンが空白ページを開く / 反応しない。** `richmenu.json` の `YOUR_LIFF_ID` を置換しないまま
+  メニューを作成したか、`LINE_MINIAPP_LIFF_ID` が間違っているか、MINI AppチャネルのエンドポイントURLが
+  このアプリの `/shop/` パスを向いていないかのいずれかです——いずれもコードではなく、コンソール/設定の
+  問題ですね。（URLを直したら `line richmenu create`/`image`/`set-default` をやり直します。）
 - **購入は完了するのにチャットメッセージが来ない。** 最大で `LINE_MINIAPP_POLL_SECONDS` ほどかかるのが
   想定どおりの挙動です——即時pushは無いのでした。それでも一向に届かないようなら、
   `PurchaseReconciliationService` のwarningを確認してください（無効/期限切れのトークンが、たいていの
@@ -93,8 +103,8 @@ F5の起動構成も `setup-richmenu` タスクも `ASPNETCORE_ENVIRONMENT=Devel
 ## 確認済みのこと・実チャネルが必要なこと
 
 実のところ、第8章までのすべてはローカルで確認できます。署名検証（受理 *と* 拒否の両方）、
-`PetGrowthEngine` へのpostbackディスパッチが実際のFlex Messageを生成すること、`setup` verb の
-ディスパッチとトークンなしでのクリーンな終了、すべてのショップエンドポイント（config/catalog/inventory
+`PetGrowthEngine` へのpostbackディスパッチが実際のFlex Messageを生成すること、すべてのショップ
+エンドポイント（config/catalog/inventory
 に reserve のバリデーション分岐まで）、そして照合ループが実際に `api.line.me` に到達し、クラッシュせず
 にレスポンスを処理すること——ここまでは手元で見届けられます。残るもの——チャット返信が実際に届くこと、
 リッチメニューがレンダリングされること、完了したIAP購入が grant→notify の全経路を駆動すること——には、

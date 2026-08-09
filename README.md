@@ -38,12 +38,12 @@ CLI works too:
 dotnet user-secrets set LINE_CHANNEL_SECRET       "<channel secret>"       --project src/LineCompanionBot
 dotnet user-secrets set LINE_CHANNEL_ACCESS_TOKEN "<channel access token>" --project src/LineCompanionBot
 
-# One-time: create and set the default rich menu
-dotnet run --project src/LineCompanionBot -- setup
-
 # Start the app
 dotnet run --project src/LineCompanionBot
 ```
+
+The rich menu is registered once with the `Line.OpenApi.Tools` CLI (`dotnet tool install -g
+Line.OpenApi.Tools`), not by the app itself — see Chapter 5 of the tutorial.
 
 See [`docs/manual/en/`](docs/manual/en/README.md) for the full walkthrough, including VS Code
 setup, dev tunnel setup for the webhook, and LINE Developers Console configuration for the MINI App
@@ -79,7 +79,6 @@ dotnet test
 Feature-complete per [`docs/manual/en/`](docs/manual/en/README.md) (all 9 chapters), plus a 3-role
 review pass (code/security/test-arch, all CONCERNS-non-blocking) with fixes applied — the review
 findings are folded into the chapters they touch rather than kept as a separate section. Verified
-locally without a live LINE channel: signature verification, postback → Flex reply dispatch, the
-`setup` CLI verb, all shop endpoints, and the purchase-reconciliation poll/retry loop reaching
-`api.line.me`. Full end-to-end behavior (chat replies, rich menu rendering, a completed IAP
+locally without a live LINE channel: signature verification, postback → Flex reply dispatch, all
+shop endpoints, and the purchase-reconciliation poll/retry loop reaching `api.line.me`. Full end-to-end behavior (chat replies, rich menu rendering, a completed IAP
 purchase) requires wiring a real Messaging API + MINI App channel — see Chapter 9 of the tutorial.

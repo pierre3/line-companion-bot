@@ -43,8 +43,12 @@ MINI Appショップでレア餌・スキンをIAP課金購入すると、購入
 - **Pet状態:** Hunger/Happiness を参照時に遅延減衰計算（バックグラウンドタイマーは使わない）。
   `feed`/`play`/`status` の3アクション、レベルは `1 + Xp/50`（テーブル無し）。
   「死亡」等マイナス方向の状態は追加しない。
-- **リッチメニュー:** `dotnet run -- setup` で一度だけブートストラップ（`RichMenuClient` 経由）。
-  Web上に管理操作用エンドポイントは公開しない。
+- **リッチメニュー:** Bot アプリには埋め込まず、外部ツール `Line.OpenApi.Tools`（`line` CLI／
+  `line mcp` MCP サーバ）で一度だけ登録する（2026-08-09、人の承認により方針変更。旧: `dotnet run -- setup`
+  verb + `RichMenuBootstrapper`）。定義は `src/LineCompanionBot/assets/richmenu.json`、画像は同 `richmenu.png`。
+  手順は `line richmenu create --file richmenu.json` → `line richmenu image <id> --file richmenu.png` →
+  `line richmenu set-default <id>`。**MCP には画像アップロードが無く CLI 専用**。リッチメニュー登録は
+  独立した管理操作なので、Bot は Web 上にも CLI verb にも管理操作を公開しない。
 - **IAP完了検知:** push webhook は存在しない。`PurchaseReconciliationService`
   (`BackgroundService`) が `GetWebhookEventsAsync` を定期ポーリングして検知する。
   付与は `OrderId` 起点で冪等（プロセス再起動時のカーソル欠落を許容）。

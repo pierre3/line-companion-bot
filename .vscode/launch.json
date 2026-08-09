@@ -10,8 +10,7 @@
       "preLaunchTask": "build",
       "program": "${workspaceFolder}/src/LineCompanionBot/bin/Debug/net10.0/LineCompanionBot.dll",
       "args": [],
-      // cwd is the project folder so appsettings.json and assets/richmenu.png resolve by their
-      // relative paths exactly as they do under `dotnet run`.
+      // cwd is the project folder so appsettings.json resolves by its relative path.
       "cwd": "${workspaceFolder}/src/LineCompanionBot",
       "stopAtEntry": false,
       "console": "integratedTerminal",

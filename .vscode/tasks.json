@@ -32,25 +32,6 @@
         "kind": "test",
         "isDefault": true
       }
-    },
-    {
-      "label": "setup-richmenu",
-      "detail": "One-shot admin action: create and set the account-wide default rich menu (dotnet run -- setup).",
-      "command": "dotnet",
-      "type": "process",
-      "args": [
-        "run",
-        "--project",
-        "${workspaceFolder}/src/LineCompanionBot/LineCompanionBot.csproj",
-        "--",
-        "setup"
-      ],
-      "options": {
-        "env": {
-          "ASPNETCORE_ENVIRONMENT": "Development"
-        }
-      },
-      "problemMatcher": []
     }
   ]
 }

@@ -33,7 +33,7 @@ that final form is what the chapter presents, not an older version you'd later h
 | 2 | [Webhook receive + signature verification](02-webhook.md) | `POST /webhook` — verify the HMAC signature, always ack 200 |
 | 3 | [Pet state and the growth engine](03-pet-growth-engine.md) | The pure pet simulation, behind an `IPetStore` seam, unit-tested |
 | 4 | [Flex replies and postback dispatch](04-flex-postback.md) | Status cards, and driving pet care from rich-menu postbacks |
-| 5 | [Rich menu bootstrap](05-rich-menu.md) | A one-shot `setup` CLI verb that creates and activates the menu |
+| 5 | [Registering the rich menu](05-rich-menu.md) | Register the menu with the `line` CLI/MCP tool (`Line.OpenApi.Tools`) |
 | 6 | [MINI App shop: front end and backend](06-shop.md) | The shop page, the reserve contract, and the IAP handoff |
 | 7 | [Purchase reconciliation](07-reconciliation.md) | A polling `BackgroundService` that grants completed purchases |
 | 8 | [Notifying the user](08-notify.md) | Service message, with a push fallback that's the default path |

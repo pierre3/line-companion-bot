@@ -36,12 +36,12 @@ Visual Studio Code（コミット済みの `.vscode/` 設定でF5起動/デバ�
 dotnet user-secrets set LINE_CHANNEL_SECRET       "<チャネルシークレット>"       --project src/LineCompanionBot
 dotnet user-secrets set LINE_CHANNEL_ACCESS_TOKEN "<チャネルアクセストークン>" --project src/LineCompanionBot
 
-# 初回のみ: リッチメニューを作成しデフォルト設定
-dotnet run --project src/LineCompanionBot -- setup
-
 # アプリ起動
 dotnet run --project src/LineCompanionBot
 ```
+
+リッチメニューはアプリ自身ではなく、`Line.OpenApi.Tools` の CLI（`dotnet tool install -g
+Line.OpenApi.Tools`）で一度だけ登録します——チュートリアル第5章を参照してください。
 
 VS Codeのセットアップ、dev tunnelでのWebhook公開手順、MINI AppショップのLINE Developers Console
 設定を含む詳細は [`docs/manual/ja/`](docs/manual/ja/README.md) を参照してください。
@@ -78,7 +78,7 @@ dotnet test
 （code/security/test-arch、いずれもCONCERNS非ブロッキング）を実施し指摘を反映済み——レビューの
 指摘は末尾に別節としてまとめず、該当する各章に畳み込んでいます。実LINEチャネル無しでローカル確認済み:
 署名検証、postback→Flex
-応答分岐、`setup`のCLIコマンド、ショップの全エンドポイント、購入照合のポーリング/リトライループが
+応答分岐、ショップの全エンドポイント、購入照合のポーリング/リトライループが
 `api.line.me`へ到達すること。エンドツーエンドの完全な動作（チャット返信・リッチメニュー表示・
 実際のIAP購入完了）には実Messaging API + MINI Appチャネルの接続が必要です——チュートリアル
 第9章参照。

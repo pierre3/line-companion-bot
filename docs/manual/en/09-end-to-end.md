@@ -3,7 +3,7 @@
 # Chapter 9 — End-to-end with a real channel, and troubleshooting
 
 Every previous chapter verified its piece locally — signature round-trips, postback dispatch, Flex
-construction, the `setup` verb, the shop's HTTP contract, the poll-and-retry loop — all without a
+construction, the shop's HTTP contract, the poll-and-retry loop — all without a
 live LINE channel. This chapter is what's left: wiring a real channel so it all runs together, and
 what tends to go wrong.
 
@@ -31,14 +31,23 @@ dotnet user-secrets set LINE_MINIAPP_LIFF_ID      "<liff id>"              --pro
 # dotnet user-secrets set LINE_MINIAPP_TEMPLATE_NAME "<approved template name>" --project src/LineCompanionBot
 ```
 
-`BuildCompanionConfiguration` reads user-secrets only in the `Development` environment — both the F5
-launch config and the `setup-richmenu` task set `ASPNETCORE_ENVIRONMENT=Development`, so both paths
-pick these up.
+`BuildCompanionConfiguration` reads user-secrets only in the `Development` environment, which the F5
+launch config sets (`ASPNETCORE_ENVIRONMENT=Development`), so the app picks these up. (The `line`
+tool below reads the channel access token from an env var / `--channel-token` / a `line config`
+profile — not from user-secrets.)
 
 ## Bringing it up
 
-1. **Create the rich menu once:** run the **setup-richmenu** task (*Terminal → Run Task →
-   setup-richmenu*). It should print a rich menu id.
+1. **Create and set the rich menu once** with the `line` tool ([Chapter 5](05-rich-menu.md)). Edit
+   `YOUR_LIFF_ID` in `richmenu.json` to your LIFF id first, give the tool the token (it doesn't read
+   user-secrets), then run the three steps — `create` prints the id you pass to the next two:
+
+   ```powershell
+   $env:LINE_CHANNEL_ACCESS_TOKEN = "<channel access token>"
+   line richmenu create --file src/LineCompanionBot/assets/richmenu.json   # prints the new id
+   line richmenu image  <richMenuId> --file src/LineCompanionBot/assets/richmenu.png
+   line richmenu set-default <richMenuId>
+   ```
 2. **Start the app:** press **F5**.
 3. **Expose it with a dev tunnel** so LINE can reach your webhook:
 
@@ -53,7 +62,7 @@ pick these up.
 ## Trying the full loop
 
 1. Add the bot as a friend; the rich menu (Feed / Play / Status / Shop) should appear immediately —
-   that's the setup task having taken effect.
+   that's `line richmenu set-default` having taken effect.
 2. Tap **Feed / Play / Status** — each produces a Flex status card within about a second. Tap
    **Play** while Hunger is low (decay is real-time) to see the refusal card.
 3. Tap **Shop** to open the MINI App; it loads the catalog and lets you buy an item
@@ -68,14 +77,15 @@ You can keep the VS Code debugger attached the whole time — set breakpoints in
 
 ## Troubleshooting
 
-- **Rich menu doesn't appear / tapping does nothing.** Confirm the setup task printed a rich menu id
-  (not the "not set" message). Check `GET /` reports `messaging: enabled`.
+- **Rich menu doesn't appear / tapping does nothing.** Confirm `line richmenu set-default` succeeded
+  (`line richmenu get-default` should return the id). Check `GET /` reports `messaging: enabled`.
 - **401 on `/webhook`.** `LINE_CHANNEL_SECRET` doesn't match the channel's.
 - **Feed/Play/Status does nothing.** Check logs for "Failed to reply to a postback event" — usually
   an expired reply token (valid ~1 min) from testing too slowly, or a missing/invalid access token.
-- **Shop button opens a blank page.** `LINE_MINIAPP_LIFF_ID` is wrong, or the MINI App channel's
-  endpoint URL isn't pointed at this app's `/shop/` path — a console configuration issue, not a code
-  one.
+- **Shop button opens a blank page (or does nothing).** You created the rich menu with
+  `YOUR_LIFF_ID` still unreplaced in `richmenu.json`, or `LINE_MINIAPP_LIFF_ID` is wrong, or the
+  MINI App channel's endpoint URL isn't pointed at this app's `/shop/` path — all console/config
+  issues, not code. (Re-run `line richmenu create`/`image`/`set-default` after fixing the URL.)
 - **Purchase completes but no chat message.** Expected to take up to `LINE_MINIAPP_POLL_SECONDS` —
   there's no instant push. If it never arrives, check for `PurchaseReconciliationService` warnings
   (an invalid/expired token is the usual cause).
@@ -87,8 +97,8 @@ You can keep the VS Code debugger attached the whole time — set breakpoints in
 ## What's verified vs. what needs a live channel
 
 Everything through Chapter 8 is confirmable locally: signature verification (accept *and* reject),
-postback dispatch into `PetGrowthEngine` producing a real Flex Message, the `setup` verb's dispatch
-and clean no-token exit, all shop endpoints (config/catalog/inventory + reserve validation
+postback dispatch into `PetGrowthEngine` producing a real Flex Message, all shop endpoints
+(config/catalog/inventory + reserve validation
 branches), and the reconciliation loop actually reaching `api.line.me` and handling responses
 without crashing. What remains — a chat reply arriving, a rich menu rendering, and a completed IAP
 purchase driving the full grant→notify path — needs the live channel setup above, which is why this

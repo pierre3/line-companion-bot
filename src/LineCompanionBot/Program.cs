@@ -13,8 +13,8 @@ using Microsoft.Extensions.Configuration;
 // (which includes it by default). LINE_CHANNEL_SECRET/LINE_CHANNEL_ACCESS_TOKEN are
 // security-sensitive: they come from user secrets in development or from environment variables,
 // never from the command line — letting a stray "--LINE_CHANNEL_SECRET=" argv entry silently win
-// would be a regression from that. Both the CLI "setup" path below (no host at all) and the web
-// host path use this same helper, so the contract is defined once.
+// would be a regression from that. The web host below uses this helper instead of
+// builder.Configuration so that contract holds.
 static IConfiguration BuildCompanionConfiguration(string environmentName)
 {
     var configurationBuilder = new ConfigurationBuilder()
@@ -22,10 +22,10 @@ static IConfiguration BuildCompanionConfiguration(string environmentName)
         .AddJsonFile($"appsettings.{environmentName}.json", optional: true);
 
     // User secrets (`dotnet user-secrets set LINE_CHANNEL_SECRET ...`) are the framework-recommended
-    // local store for the LINE_* secrets in development — added here so both the web host and the
-    // "setup" path below pick them up, mirroring WebApplication.CreateBuilder's own Development-only
-    // user-secrets behavior but on this app's dedicated configuration. Placed before the environment-
-    // variable provider so an explicit env var still wins (standard .NET provider precedence).
+    // local store for the LINE_* secrets in development — added here so the web host picks them up,
+    // mirroring WebApplication.CreateBuilder's own Development-only user-secrets behavior but on this
+    // app's dedicated configuration. Placed before the environment-variable provider so an explicit
+    // env var still wins (standard .NET provider precedence).
     if (string.Equals(environmentName, "Development", StringComparison.Ordinal))
     {
         configurationBuilder.AddUserSecrets(typeof(Program).Assembly, optional: true);
@@ -34,16 +34,6 @@ static IConfiguration BuildCompanionConfiguration(string environmentName)
     return configurationBuilder
         .AddEnvironmentVariables()
         .Build();
-}
-
-// "dotnet run -- setup": one-shot rich menu bootstrap. Handled before WebApplication is built —
-// this is a local admin action, never an HTTP endpoint reachable over a dev tunnel.
-if (args.Length > 0 && args[0] == "setup")
-{
-    var setupEnvironmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
-    var setupSettings = BuildCompanionConfiguration(setupEnvironmentName).Get<CompanionSettings>() ?? new CompanionSettings();
-    await RichMenuBootstrapper.RunAsync(setupSettings, "assets/richmenu.png");
-    return;
 }
 
 var builder = WebApplication.CreateBuilder(args);

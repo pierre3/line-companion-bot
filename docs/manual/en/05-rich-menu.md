@@ -1,133 +1,82 @@
 [← Chapter 4](04-flex-postback.md) | [Index](README.md) | [Chapter 6 →](06-shop.md)
 
-# Chapter 5 — Rich menu bootstrap (`dotnet run -- setup`)
+# Chapter 5 — Registering the rich menu with the `line` tool
 
-**What we're building:** a one-shot CLI verb that creates the rich menu, uploads its image, and sets
-it as the account's default — the piece that turns the postback strings from Chapter 4
-(`"action=feed"` etc.) into something a user can actually tap.
+**What we're building:** not application code this time — a rich menu *definition* (`richmenu.json`)
+that we register with LINE using the `Line.OpenApi.Tools` command-line tool. This is the piece that
+turns Chapter 4's postback strings (`"action=feed"` etc.) into something a user can actually tap.
 
-**Why a CLI verb, not an HTTP endpoint.** Setting the *default* rich menu is account-wide — it
-affects every user of the channel. That's an admin action, and this app is exposed to the internet
-over a dev tunnel for the webhook to work. A `POST /setup` endpoint would put a destructive,
-unauthenticated admin action on the same public surface as the webhook. Dispatching on `args[0]`
-*before* `WebApplication` is even built keeps it strictly local.
+**Why a tool, not app code.** Setting the account-wide *default* rich menu is a one-shot admin
+action, independent of the running Bot — it affects every user of the channel and doesn't change
+once set. Two things it should *not* be:
 
-## The setup verb in Program.cs
+- **Not an HTTP endpoint.** This app is exposed to the internet over a dev tunnel so the webhook
+  works; a `POST /setup` would put a destructive, account-wide, unauthenticated admin action on the
+  same public surface as the webhook.
+- **Not a verb baked into the Bot process either.** The rich menu has nothing to do with serving
+  webhooks. Rather than teach the Bot app an admin trick it runs once and never again, we use the
+  CLI that ships with the same library family the Bot already consumes: `Line.OpenApi.Tools`. Rich
+  menu admin becomes a `line richmenu ...` command, and the Bot app stays purely the Bot.
 
-At the very top of `Program.cs`, before `WebApplication.CreateBuilder`, add the verb dispatch (it
-reuses the same `BuildCompanionConfiguration` helper from Chapter 1, so user-secrets and env vars
-resolve identically to the web host):
+## Install the tool
 
-```csharp
-if (args.Length > 0 && args[0] == "setup")
-{
-    var setupEnvironmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
-    var setupSettings = BuildCompanionConfiguration(setupEnvironmentName).Get<CompanionSettings>() ?? new CompanionSettings();
-    await RichMenuBootstrapper.RunAsync(setupSettings, "assets/richmenu.png");
-    return;
-}
+`Line.OpenApi.Tools` is a .NET global tool (command name `line`) that doubles as an MCP server:
+
+```powershell
+dotnet tool install -g Line.OpenApi.Tools --version 0.2.0-preview
 ```
 
-`RichMenuBootstrapper` lives in `LineCompanionBot.Services`, so add `using LineCompanionBot.Services;`
-to the top of `Program.cs`.
+`line --help` should now list the command groups (`richmenu`, `config`, …). (If you have the
+`line-dotnet` source checked out, you can run it without installing:
+`dotnet run --project path/to/line-dotnet/tools/Line.OpenApi.Tools -- <command>`.)
 
-Because this path has no host, it has no ambient `IConfiguration` to reuse — building its own via
-the shared helper is exactly why that helper exists. Note the environment name comes from
-`ASPNETCORE_ENVIRONMENT`; the `setup-richmenu` task in `.vscode/tasks.json` sets it to `Development`
-so your user-secrets token is picked up.
+## The rich menu definition
 
-## The bootstrapper
+`line richmenu create` takes a JSON definition — the standard LINE rich menu shape. Create
+`src/LineCompanionBot/assets/richmenu.json`:
 
-Create `src/LineCompanionBot/Services/RichMenuBootstrapper.cs`:
-
-```csharp
-using Line.OpenApi.Messaging;
-using Line.OpenApi.Messaging.Generated.Api.Models;
-
-namespace LineCompanionBot.Services;
-
-// One-shot CLI bootstrap ("dotnet run -- setup"), not an HTTP endpoint: creating/replacing the
-// account-wide default rich menu is an admin action that shouldn't be reachable over a dev tunnel.
-public static class RichMenuBootstrapper
+```json
 {
-    private const int MenuWidth = 2500;
-    private const int MenuHeight = 1686;
-    private const int HalfWidth = MenuWidth / 2;
-    private const int HalfHeight = MenuHeight / 2;
-
-    public static async Task RunAsync(CompanionSettings settings, string imagePath)
+  "size": { "width": 2500, "height": 1686 },
+  "selected": true,
+  "name": "LineCompanionBot default menu",
+  "chatBarText": "Menu",
+  "areas": [
     {
-        if (!settings.HasMessaging)
-        {
-            Console.Error.WriteLine("LINE_CHANNEL_ACCESS_TOKEN is not set — cannot create a rich menu.");
-            return;
-        }
-
-        if (!settings.HasShop)
-        {
-            Console.WriteLine("Warning: LINE_MINIAPP_LIFF_ID is not set — the Shop button will link to a placeholder URL.");
-        }
-
-        var shopUri = settings.HasShop ? $"https://liff.line.me/{settings.LiffId}" : "https://line.me/";
-
-        var request = new RichMenuRequest
-        {
-            Name = "LineCompanionBot default menu",
-            ChatBarText = "Menu",
-            Selected = true,
-            Size = new RichMenuSize { Width = MenuWidth, Height = MenuHeight },
-            Areas = new List<RichMenuArea>
-            {
-                Area(0, 0, "action=feed"),
-                Area(HalfWidth, 0, "action=play"),
-                Area(0, HalfHeight, "action=status"),
-                AreaUri(HalfWidth, HalfHeight, shopUri),
-            },
-        };
-
-        var richMenu = RichMenuClient.CreateWithStaticToken(settings.ChannelAccessToken!);
-        var richMenuId = await richMenu.CreateAsync(request);
-        if (richMenuId is null)
-        {
-            Console.Error.WriteLine("Failed to create the rich menu (no id returned).");
-            return;
-        }
-
-        await richMenu.SetImageFromFileAsync(richMenuId, imagePath);
-        await richMenu.SetDefaultAsync(richMenuId);
-
-        Console.WriteLine($"Rich menu created and set as default: {richMenuId}");
+      "bounds": { "x": 0, "y": 0, "width": 1250, "height": 843 },
+      "action": { "type": "postback", "data": "action=feed" }
+    },
+    {
+      "bounds": { "x": 1250, "y": 0, "width": 1250, "height": 843 },
+      "action": { "type": "postback", "data": "action=play" }
+    },
+    {
+      "bounds": { "x": 0, "y": 843, "width": 1250, "height": 843 },
+      "action": { "type": "postback", "data": "action=status" }
+    },
+    {
+      "bounds": { "x": 1250, "y": 843, "width": 1250, "height": 843 },
+      "action": { "type": "uri", "uri": "https://liff.line.me/YOUR_LIFF_ID" }
     }
-
-    private static RichMenuArea Area(int x, int y, string postbackData) => new()
-    {
-        Bounds = new RichMenuBounds { X = x, Y = y, Width = HalfWidth, Height = HalfHeight },
-        Action = new PostbackAction { Data = postbackData },
-    };
-
-    private static RichMenuArea AreaUri(int x, int y, string uri) => new()
-    {
-        Bounds = new RichMenuBounds { X = x, Y = y, Width = HalfWidth, Height = HalfHeight },
-        Action = new URIAction { Uri = uri },
-    };
+  ]
 }
 ```
 
-`Area` / `AreaUri` are small helpers building the four quadrant `RichMenuArea`s. Three use
-`PostbackAction` (matching the `"action=..."` strings the webhook already dispatches on); the
-fourth uses `URIAction` pointing at the MINI App shop's LIFF URL — the shop button needs no
-postback, LINE just opens the URL.
+Four tappable areas on a 2500×1686 canvas, split into quadrants:
 
-`RichMenuClient.CreateWithStaticToken(...)` is the facade for the rich-menu endpoints. It matters
-here specifically because uploading the image hits LINE's *data* host (`api-data.line.me`), which
-must be configured before the client is built — the facade handles that internally, so you don't
-have to think about the BaseUrl ordering the low-level `MessagingClient.Blob` would require.
+- **Feed / Play / Status** are `postback` areas whose `data` is exactly the strings the webhook
+  dispatches on in [Chapter 4](04-flex-postback.md) — this is where those strings finally get a
+  sender. These `data` values and the `switch` cases in `WebhookEndpoints.cs` are matched by hand,
+  so if you rename one, rename the other or the tap does nothing.
+- **Shop** is a `uri` area that opens the MINI App's LIFF URL (it sends no postback; LINE just opens
+  the URL). Replace `YOUR_LIFF_ID` with your MINI App's LIFF id — you'll have one after
+  [Chapter 6](06-shop.md)/[Chapter 9](09-end-to-end.md).
 
-## The blocking prerequisite: an actual image file
+## The image
 
-`SetImageFromFileAsync` needs a real PNG on disk — there's no way around uploading actual pixels.
-Create an `assets/` folder in the app project and put a `richmenu.png` in it. You can copy the
-placeholder from the reference repository's
+`richmenu.json` describes the tappable regions; the menu also needs a background image — a real PNG
+on disk, there's no way around uploading actual pixels. Put a `richmenu.png` in
+`src/LineCompanionBot/assets/`. You can copy the placeholder from the reference repository's
 [`src/LineCompanionBot/assets/richmenu.png`](https://github.com/pierre3/line-companion-bot/blob/main/src/LineCompanionBot/assets/richmenu.png),
 or make your own: this project has no image-generation library (adding one to draw four boxes would
 be a disproportionate dependency), so the placeholder was generated once, out-of-band, with a
@@ -139,24 +88,50 @@ Add-Type -AssemblyName System.Drawing
 $bmp.Save("assets/richmenu.png", [System.Drawing.Imaging.ImageFormat]::Png)
 ```
 
-Replace this file with real artwork before using the app for anything beyond a demo. Make sure the
-`.csproj` copies it to the output (or the relative path `"assets/richmenu.png"` won't resolve when
-run from the build directory).
+Replace it with real artwork before using the app for anything beyond a demo. Unlike an embedded
+asset, the tool takes the image path explicitly (`--file`), so there's no `.csproj` copy step to
+worry about.
 
-## Try it — no real channel needed to confirm the wiring
+## Register it
 
-Run the **setup-richmenu** task (VS Code: *Terminal → Run Task → setup-richmenu*), or from a
-terminal:
+All three steps need a channel access token. Supply it whichever way suits you — an environment
+variable (`LINE_CHANNEL_ACCESS_TOKEN`), a per-command `--channel-token`, or a saved profile
+(`line config set default --token "..."`, stored in `~/.line/config.json`). Either way the token
+lands in your shell environment or a plaintext file, so prefer one you can revoke and clear it when
+you're done. Then, from the repo root:
 
 ```powershell
-dotnet run --project src/LineCompanionBot -- setup
+# 1. Create the menu from the definition — prints the new rich menu id.
+line richmenu create --file src/LineCompanionBot/assets/richmenu.json
+
+# 2. Upload the background image to that id.
+line richmenu image <richMenuId> --file src/LineCompanionBot/assets/richmenu.png
+
+# 3. Make it the default menu for every user of the channel.
+line richmenu set-default <richMenuId>
 ```
 
-With no token configured:
+`create` prints the `richMenuId` you paste into steps 2 and 3. The image upload goes to LINE's
+*data* host (`api-data.line.me`), a different host from the control-plane calls — the tool routes it
+for you, sparing you the BaseUrl split you'd otherwise set up by hand on the low-level client.
 
-```
-LINE_CHANNEL_ACCESS_TOKEN is not set — cannot create a rich menu.
+## The same tool as an MCP server (optional)
+
+`line` doubles as an MCP server, so you can drive the same operations from Claude Code instead of
+the shell:
+
+```powershell
+claude mcp add line -- line mcp
 ```
 
-The verb dispatched before the web host started and exited cleanly — no server booted, no crash.
-Running it against a real channel access token (Chapter 9) actually creates and activates the menu.
+That exposes `line_richmenu_create`, `line_richmenu_set_default`, `line_richmenu_list`, and the rest
+as MCP tools. One deliberate gap: **image upload is CLI-only** (shipping binary through MCP is
+impractical), so even in an MCP-driven flow the `line richmenu image` step still runs via the CLI.
+
+## Try it
+
+Every `line richmenu` command calls LINE with your token, so there's nothing to run fully offline
+here beyond `line --help` and eyeballing `richmenu.json`. Registering the menu for real — the three
+commands above — belongs to [Chapter 9](09-end-to-end.md), where you wire up a real channel. If you
+already have a channel access token, run them now and the menu (Feed / Play / Status / Shop) appears
+the moment you add the bot as a friend.

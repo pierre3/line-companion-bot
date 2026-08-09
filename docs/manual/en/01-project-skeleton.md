@@ -128,8 +128,7 @@ Three things to notice:
 - **`BuildCompanionConfiguration` is a dedicated config source, not `builder.Configuration`.** It
   deliberately omits `AddCommandLine()` (which `WebApplication.CreateBuilder`'s own configuration
   includes) — a stray `--LINE_CHANNEL_SECRET=` on the command line silently winning would be a
-  regression for a security-sensitive value. The same helper feeds both here and the `setup` verb
-  in [Chapter 5](05-rich-menu.md), so the contract is defined once. It also adds user-secrets in
+  regression for a security-sensitive value. It also adds user-secrets in
   Development (from Getting started), which is why "put the token in user-secrets" works later.
 - **`?? new CompanionSettings()` is load-bearing, not defensive.** `Get<T>()` returns `null` — not a
   defaulted instance — when the configuration is completely empty. Without the fallback, an

@@ -130,8 +130,7 @@ app.Run();
 - **`BuildCompanionConfiguration` は `builder.Configuration` ではなく専用の設定ソースである。**
   あえて `AddCommandLine()`（`WebApplication.CreateBuilder` 自身の設定には含まれます）を省いています
   ——コマンドラインに紛れ込んだ `--LINE_CHANNEL_SECRET=` が静かに勝ってしまうのは、セキュリティに
-  敏感な値にとってはリグレッションだからです。同じヘルパーがここと[第5章](05-rich-menu.md)の
-  `setup` コマンドの両方に供給されるので、契約は一度だけ定義すれば済みます。加えてDevelopmentでは
+  敏感な値にとってはリグレッションだからです。加えてDevelopmentでは
   user-secretsを追加しており（「はじめに」より）、これが後で「トークンをuser-secretsに入れる」が
   効いてくる理由です。
 - **`?? new CompanionSettings()` は防御ではなく必須である。** というのも、設定が完全に空のとき、
