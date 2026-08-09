@@ -29,6 +29,9 @@ if (args.Length > 0 && args[0] == "setup")
 }
 ```
 
+`RichMenuBootstrapper` は `LineCompanionBot.Services` にあるので、`Program.cs` の冒頭に
+`using LineCompanionBot.Services;` を追加してください。
+
 というのも、このパスにはホストが存在せず、そのまま使い回せるアンビエントな`IConfiguration`も
 無いからです——共有ヘルパー経由で自前に組み立てているのは、まさにこのヘルパーが存在する理由
 そのものだと言えます。環境名を`ASPNETCORE_ENVIRONMENT`から取得している点には少し注意して

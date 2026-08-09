@@ -98,9 +98,12 @@ public static class PetFlexMessageFactory
 
 ## Replacing the echo with postback dispatch
 
-Now rewrite the event loop in `Endpoints/WebhookEndpoints.cs`. Add `IPetStore petStore` to the
-handler parameters (unconditionally registered, so no `[FromServices]` needed — contrast the gated
-`parser`/`messaging`), and replace the `MessageEvent` echo branch:
+Now rewrite the event loop in `Endpoints/WebhookEndpoints.cs`. Replace Chapter 2's entire
+`foreach (var ev in ...) { ... }` block with the one below, and add `IPetStore petStore` to the
+handler parameters — just before `CancellationToken ct`. It's unconditionally registered, so no
+`[FromServices]` is needed (contrast the gated `parser`/`messaging`). The new code references
+`PetGrowthEngine`/`PetFlexMessageFactory` and `IPetStore`, so add `using LineCompanionBot.Services;`
+and `using LineCompanionBot.Persistence;` to the top of the file:
 
 ```csharp
 foreach (var ev in callback.Events ?? new())

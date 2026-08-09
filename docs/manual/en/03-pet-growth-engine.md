@@ -194,7 +194,9 @@ public static class PersistenceServiceCollectionExtensions
 }
 ```
 
-and call `builder.Services.AddInMemoryPersistence();` in `Program.cs`. A real deployment swaps that
+and call `builder.Services.AddInMemoryPersistence();` in `Program.cs` — it's an extension in
+`LineCompanionBot.Persistence.InMemory`, so add `using LineCompanionBot.Persistence.InMemory;` to the
+top of `Program.cs`. A real deployment swaps that
 one line for, e.g., `AddSqlPersistence(connectionString)` — every consumer depends on the `I*Store`
 interfaces, never on the concrete types. (Singleton here because the dictionaries must outlive any
 single request; [Chapter 7](07-reconciliation.md) explains why that lifetime choice shapes how the

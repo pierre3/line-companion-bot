@@ -83,6 +83,10 @@ public static class WebhookEndpoints
 app.MapWebhookEndpoint();
 ```
 
+`MapWebhookEndpoint` は `LineCompanionBot.Endpoints` にある拡張メソッドなので、`Program.cs` の冒頭に
+`using LineCompanionBot.Endpoints;` を追加してください——第1章の縮約された `using` ブロックでは、
+まだこれを参照していませんでした。
+
 ここで押さえておきたい、そしてこのアプリ全体で繰り返し顔を出すことになるポイントが3つあります:
 
 - **`parser` と `messaging` の `[FromServices]` は飾りではなく必須です。** 理由はシンプルで、どちらも

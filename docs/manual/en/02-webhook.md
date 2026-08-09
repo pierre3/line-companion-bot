@@ -82,6 +82,10 @@ Wire it up in `Program.cs`, after the health endpoint:
 app.MapWebhookEndpoint();
 ```
 
+`MapWebhookEndpoint` is an extension method in `LineCompanionBot.Endpoints`, so add
+`using LineCompanionBot.Endpoints;` to the top of `Program.cs` — Chapter 1's reduced `using` block
+didn't reference it yet.
+
 Three points that matter here and recur throughout the app:
 
 - **`[FromServices]` is required, not decorative, on `parser` and `messaging`.** Both are

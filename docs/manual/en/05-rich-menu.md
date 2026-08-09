@@ -28,6 +28,9 @@ if (args.Length > 0 && args[0] == "setup")
 }
 ```
 
+`RichMenuBootstrapper` lives in `LineCompanionBot.Services`, so add `using LineCompanionBot.Services;`
+to the top of `Program.cs`.
+
 Because this path has no host, it has no ambient `IConfiguration` to reuse — building its own via
 the shared helper is exactly why that helper exists. Note the environment name comes from
 `ASPNETCORE_ENVIRONMENT`; the `setup-richmenu` task in `.vscode/tasks.json` sets it to `Development`

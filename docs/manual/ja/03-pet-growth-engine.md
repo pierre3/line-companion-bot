@@ -195,7 +195,9 @@ public static class PersistenceServiceCollectionExtensions
 }
 ```
 
-あとは `Program.cs` で `builder.Services.AddInMemoryPersistence();` を呼び出すだけです。本番デプロイに
+あとは `Program.cs` で `builder.Services.AddInMemoryPersistence();` を呼び出すだけです（これは
+`LineCompanionBot.Persistence.InMemory` にある拡張メソッドなので、`Program.cs` の冒頭に
+`using LineCompanionBot.Persistence.InMemory;` を追加してください）。本番デプロイに
 移すときも、差し替えるのはこの1行——たとえば `AddSqlPersistence(connectionString)` に置き換えるだけで
 済みます。というのも、すべての消費者は `I*Store` インターフェースにだけ依存していて、具象型には一切
 触れていないからです。（ここでSingletonを選んでいるのは、dictionaryが単一のリクエストより長生きしなければ

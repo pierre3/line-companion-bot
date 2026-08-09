@@ -99,9 +99,13 @@ public static class PetFlexMessageFactory
 
 ## オウム返しをpostback分岐に置き換える
 
-それでは `Endpoints/WebhookEndpoints.cs` のイベントループを書き換えていきましょう。ハンドラの引数に
-`IPetStore petStore` を加え（こちらは無条件に登録されているので `[FromServices]` は要りません——ゲート
-された `parser`/`messaging` とはちょうど対照的です）、`MessageEvent` のオウム返し分岐を置き換えます:
+それでは `Endpoints/WebhookEndpoints.cs` のイベントループを書き換えていきましょう。第2章の
+`foreach (var ev in ...) { ... }` ブロック**全体**を、下記の `foreach` に丸ごと置き換えます。あわせて
+ハンドラの引数に `IPetStore petStore` を——`CancellationToken ct` の直前に——加えてください（こちらは
+無条件に登録されているので `[FromServices]` は要りません。ゲートされた `parser`/`messaging` とはちょうど
+対照的です）。新しいコードは `PetGrowthEngine`/`PetFlexMessageFactory`（`LineCompanionBot.Services`）と
+`IPetStore`（`LineCompanionBot.Persistence`）を参照するので、ファイル冒頭に
+`using LineCompanionBot.Services;` と `using LineCompanionBot.Persistence;` を追加します:
 
 ```csharp
 foreach (var ev in callback.Events ?? new())
