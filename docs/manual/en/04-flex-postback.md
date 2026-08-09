@@ -156,9 +156,9 @@ foreach (var ev in callback.Events ?? new())
 }
 ```
 
-The resolve-user-then-dispatch-then-reply shape is the whole handler now. The same absorb-and-ack
-idiom from Chapter 2 still wraps the reply call — an expired reply token shouldn't provoke a
-retry storm. `CancellationToken ct` flows from `HttpContext.RequestAborted` (bound automatically —
+The resolve-user-then-dispatch-then-reply shape is the whole handler now. As in Chapter 2, the reply
+call is wrapped in a try/catch that logs any failure but still lets the endpoint return 200 — an
+expired reply token shouldn't provoke a retry storm. `CancellationToken ct` flows from `HttpContext.RequestAborted` (bound automatically —
 no attribute) into the store and reply calls.
 
 > The `"action=..."` strings aren't arbitrary — they're exactly the postback data the rich menu in
@@ -177,6 +177,6 @@ $body = '{"destination":"xxx","events":[{"type":"postback","replyToken":"dummy",
 
 Set a breakpoint on the `switch` and F5-debug the request: you'll see it resolve `U123`, run
 `Feed`, and build a `FlexMessage`. Without a real channel access token the reply call to
-`api.line.me` fails and is logged — but the endpoint still returns 200, the same absorb-and-ack
-idiom now covering a real downstream call. Wiring a real token so the card actually arrives is
+`api.line.me` fails and is logged — but the endpoint still returns 200: the same handling as
+Chapter 2 (log the failure, return 200 anyway), now wrapping a real call out to LINE's API. Wiring a real token so the card actually arrives is
 [Chapter 9](09-end-to-end.md).

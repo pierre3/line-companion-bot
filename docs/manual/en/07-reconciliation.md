@@ -59,8 +59,8 @@ protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 }
 ```
 
-A poll failure is swallowed and retried next tick — the same absorb-and-continue idiom as the
-webhook handler, applied to a background loop. (This is also why `CompanionSettings.PollSeconds`
+A poll failure is caught and retried on the next tick — the same idea as the webhook handler (log
+the error, keep going), applied to a background loop. (This is also why `CompanionSettings.PollSeconds`
 clamps to a positive value: `PeriodicTimer`'s constructor is *outside* this try/catch, and it throws
 on a non-positive interval, which would take down the host.)
 

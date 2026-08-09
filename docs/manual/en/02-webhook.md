@@ -96,9 +96,9 @@ Three points that matter here and recur throughout the app:
   *unconditionally* registered services in later chapters, where the attribute is correctly omitted.)
 - **Read the raw bytes before anything else.** The HMAC is over the exact request body; letting the
   framework model-bind first would consume the stream and change the bytes.
-- **Absorb the reply failure, still return 200.** A reply can fail — most commonly an expired reply
-  token (valid ~1 minute). Because LINE retries any non-2xx delivery, turning a reply failure into a
-  non-2xx would create a duplicate-delivery storm. Log and ack.
+- **Let a reply failure log, but still return 200.** A reply can fail — most commonly an expired
+  reply token (valid ~1 minute). Because LINE retries any non-2xx delivery, turning a reply failure
+  into a non-2xx would create a duplicate-delivery storm. So catch it, log it, and return 200 anyway.
 
 ## Try it — no LINE channel needed
 

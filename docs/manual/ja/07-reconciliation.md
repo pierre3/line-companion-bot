@@ -64,8 +64,8 @@ protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 }
 ```
 
-ポーリングが失敗しても、握りつぶして次のtickでまた試すだけ——webhookハンドラで使った
-「吸収して継続する」イディオムを、今度はバックグラウンドループに当てはめた形です。ちなみに、
+ポーリングが失敗しても、例外を捕まえて次のtickでまた試すだけ——webhookハンドラと同じ考え方
+（エラーはログに残して処理は止めない）を、今度はバックグラウンドループに当てはめた形です。ちなみに、
 `CompanionSettings.PollSeconds` を正の値にクランプしていたのも、実はここに効いてきます。
 `PeriodicTimer` のコンストラクタはこの try/catch の *外側* にあり、非正の間隔を渡すと例外を投げて
 ホストごと巻き込んで落としてしまうからです。設定ミス一つでアプリ全体が起動しない、という事態を
