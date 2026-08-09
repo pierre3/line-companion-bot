@@ -6,17 +6,9 @@
 that we register with LINE using the `Line.OpenApi.Tools` command-line tool. This is the piece that
 turns Chapter 4's postback strings (`"action=feed"` etc.) into something a user can actually tap.
 
-**Why a tool, not app code.** Setting the account-wide *default* rich menu is a one-shot admin
-action, independent of the running Bot — it affects every user of the channel and doesn't change
-once set. Two things it should *not* be:
-
-- **Not an HTTP endpoint.** This app is exposed to the internet over a dev tunnel so the webhook
-  works; a `POST /setup` would put a destructive, account-wide, unauthenticated admin action on the
-  same public surface as the webhook.
-- **Not a verb baked into the Bot process either.** The rich menu has nothing to do with serving
-  webhooks. Rather than teach the Bot app an admin trick it runs once and never again, we use the
-  CLI that ships with the same library family the Bot already consumes: `Line.OpenApi.Tools`. Rich
-  menu admin becomes a `line richmenu ...` command, and the Bot app stays purely the Bot.
+The `Line.OpenApi.*` family ships a command-line tool, `Line.OpenApi.Tools`, whose `richmenu`
+commands manage rich menus end to end — create one from a definition, upload its image, set it as
+the default, list or delete. We register the menu with it, so this step needs no app code.
 
 ## Install the tool
 
