@@ -19,6 +19,16 @@ resolves eagerly; resolving inside the already-gated poll avoids that.
 
 ## The notification logic
 
+In Chapter 7, `NotifyPurchaseAsync` was a stub (`=> Task.CompletedTask`) that kept the service
+compiling. Replace that whole stub method with the implementation below. It uses
+`PushMessageRequest`/`Message`/`TextMessage` (`Line.OpenApi.Messaging.Generated.Api.Models`) and
+`NotifierToken` (`Line.OpenApi.MiniApp.Models`), so add the two `using`s at the top of the file first:
+
+```csharp
+using Line.OpenApi.Messaging.Generated.Api.Models;
+using Line.OpenApi.MiniApp.Models;
+```
+
 ```csharp
 private async Task NotifyPurchaseAsync(
     string userId, string productId, MiniAppClient miniApp, MessagingClient messaging,
@@ -62,7 +72,7 @@ private async Task NotifyPurchaseAsync(
     {
         // Both paths failed: the item is durably granted (Chapter 7's idempotency) but the user was
         // never told, and nothing retries this — surface it loudly, not at Warning.
-        _logger.LogError(ex, "Both service message and push fallback failed for {UserId} — item granted but never announced.", userId);
+        _logger.LogError(ex, "Both service message and push fallback failed for {UserId} — item was granted but never announced.", userId);
     }
 }
 ```

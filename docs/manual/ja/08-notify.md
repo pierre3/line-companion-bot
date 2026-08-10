@@ -22,6 +22,16 @@
 
 ## 通知ロジック
 
+第7章で `NotifyPurchaseAsync` は、サービスをビルドできるようにするためのスタブ（`=> Task.CompletedTask`）
+でした。そのスタブメソッドを、下記の実装で丸ごと置き換えます。`PushMessageRequest`/`Message`/`TextMessage`
+（`Line.OpenApi.Messaging.Generated.Api.Models`）と `NotifierToken`（`Line.OpenApi.MiniApp.Models`）を
+使うので、先にファイル冒頭へ using を2本足します:
+
+```csharp
+using Line.OpenApi.Messaging.Generated.Api.Models;
+using Line.OpenApi.MiniApp.Models;
+```
+
 ```csharp
 private async Task NotifyPurchaseAsync(
     string userId, string productId, MiniAppClient miniApp, MessagingClient messaging,
@@ -65,7 +75,7 @@ private async Task NotifyPurchaseAsync(
     {
         // Both paths failed: the item is durably granted (Chapter 7's idempotency) but the user was
         // never told, and nothing retries this — surface it loudly, not at Warning.
-        _logger.LogError(ex, "Both service message and push fallback failed for {UserId} — item granted but never announced.", userId);
+        _logger.LogError(ex, "Both service message and push fallback failed for {UserId} — item was granted but never announced.", userId);
     }
 }
 ```

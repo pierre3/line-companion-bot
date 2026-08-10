@@ -33,38 +33,172 @@ builder.Services.AddHostedService<PurchaseReconciliationService>();
 ストアのライフタイムを変えても、このクラスには一切手を入れずに済む——第3章でわざわざ永続化の
 シーム（seam）を設けておいたのは、まさにこの瞬間のためでした。
 
+## 完全なファイル
+
+`src/LineCompanionBot/Services/PurchaseReconciliationService.cs` の全体です。以降の2節で
+`ExecuteAsync` と `PollOnceAsync` を順に読み解きます。`NotifyPurchaseAsync`（付与直後の通知）は、
+サービスが単体でビルド・完結できるよう、ここではスタブに留めてあります——その中身（と、そこで必要に
+なる using 2本）は第8章で実装します:
+
 ```csharp
-public PurchaseReconciliationService(CompanionSettings settings, IServiceScopeFactory scopeFactory, ILogger<...> logger)
+using Line.OpenApi.Messaging;
+using Line.OpenApi.MiniApp;
+using LineCompanionBot.Persistence;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace LineCompanionBot.Services;
+
+// There is no push webhook for IAP events — GetWebhookEventsAsync must be polled. Idempotent by
+// design: IInventoryStore.Grant/Revoke key off OrderId, so re-scanning an overlapping window after
+// a restart can never double-grant or double-revoke.
+public sealed class PurchaseReconciliationService : BackgroundService
 {
-    _settings = settings;
-    _scopeFactory = scopeFactory;
-    _logger = logger;
-    // Only purchases from now on are polled for — a fresh demo process shouldn't re-scan 7 days of history.
-    _watermarkEpochSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    private readonly CompanionSettings _settings;
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ILogger<PurchaseReconciliationService> _logger;
+    private long _watermarkEpochSeconds;
+
+    public PurchaseReconciliationService(
+        CompanionSettings settings,
+        IServiceScopeFactory scopeFactory,
+        ILogger<PurchaseReconciliationService> logger)
+    {
+        _settings = settings;
+        // Stores are resolved per-poll from a fresh DI scope (see PollOnceAsync) rather than taken
+        // as direct constructor dependencies: this BackgroundService is a Singleton for the
+        // process lifetime, but the I*Store implementations only happen to be Singleton today
+        // (in-memory). A future RDB-backed store would typically be Scoped (per-request/per-unit-
+        // of-work DbContext), and a Singleton can't hold a Scoped dependency directly (the
+        // "captive dependency" problem) — resolving via scope here means that swap needs no change
+        // in this class.
+        _scopeFactory = scopeFactory;
+        _logger = logger;
+        // Only purchases made from this point on are polled for — a fresh demo process has no
+        // reason to re-scan the full 7-day history on every restart.
+        _watermarkEpochSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        if (!_settings.HasMessaging)
+        {
+            _logger.LogInformation("LINE_CHANNEL_ACCESS_TOKEN is not set — purchase reconciliation is disabled.");
+            return;
+        }
+
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(_settings.PollSeconds));
+        do
+        {
+            try
+            {
+                await PollOnceAsync(stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                // A poll failure must not kill the loop — just retry on the next tick.
+                _logger.LogWarning(ex, "Purchase reconciliation poll failed; will retry next tick.");
+            }
+        } while (await timer.WaitForNextTickAsync(stoppingToken));
+    }
+
+    // Trailing safety margin: querying right up to the current instant risks missing an event
+    // that completed moments ago but isn't indexed yet on LINE's side. A few seconds of overlap
+    // costs nothing (Grant/Revoke are idempotent by OrderId) but closes that gap.
+    private const int TrailingBufferSeconds = 5;
+
+    private async Task PollOnceAsync(CancellationToken ct)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var services = scope.ServiceProvider;
+        var miniApp = services.GetRequiredService<MiniAppClient>();
+        var messaging = services.GetRequiredService<MessagingClient>();
+        var orders = services.GetRequiredService<IOrderStore>();
+        var inventory = services.GetRequiredService<IInventoryStore>();
+        var notifierTokens = services.GetRequiredService<INotifierTokenStore>();
+
+        var start = _watermarkEpochSeconds;
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - TrailingBufferSeconds;
+        string? cursor = null;
+
+        // Advance the watermark only after a fully successful walk of every page — advancing
+        // per-event would risk silently skipping the rest of a page if this loop is interrupted.
+        do
+        {
+            var page = await miniApp.GetWebhookEventsAsync(
+                _settings.ChannelAccessToken!, start, now, pageSize: 50, cursor: cursor, status: "SUCCESS", ct);
+
+            foreach (var entry in page?.Events ?? new())
+            {
+                var ev = entry.Event;
+                if (ev?.OrderId is null)
+                {
+                    continue;
+                }
+
+                // Only act on orders this app itself reserved — other IAP activity on the same
+                // channel (if any) is none of this app's business.
+                var order = await orders.TryGetAsync(ev.OrderId, ct);
+                if (order is null)
+                {
+                    continue;
+                }
+
+                // Grant/notify the user LINE itself attributes the purchase to, not the
+                // client-supplied value recorded at reserve time (see Program.cs's
+                // /api/shop/reserve) — ev.UserId comes from LINE's own IAP webhook payload, so
+                // it's the authoritative identity even if a caller supplied a bogus userId when
+                // reserving. Log a mismatch since it's a signal the reserve request was spoofed.
+                var userId = ev.UserId ?? order.UserId;
+                if (ev.UserId is not null && ev.UserId != order.UserId)
+                {
+                    _logger.LogWarning(
+                        "Order {OrderId} was reserved with userId {ReservedUserId} but LINE attributes it to {ActualUserId}; using the latter.",
+                        order.OrderId, order.UserId, ev.UserId);
+                }
+
+                switch (ev.Type)
+                {
+                    case "purchaseComplete":
+                        if (await inventory.GrantAsync(userId, order.OrderId, order.ProductId, ct))
+                        {
+                            _logger.LogInformation(
+                                "Granted {ProductId} to {UserId} (order {OrderId}).",
+                                order.ProductId, userId, order.OrderId);
+                            await NotifyPurchaseAsync(userId, order.ProductId, miniApp, messaging, notifierTokens, ct);
+                        }
+                        break;
+                    case "refundComplete":
+                        await inventory.RevokeAsync(userId, order.OrderId, ct);
+                        break;
+                }
+            }
+
+            cursor = page?.NextCursor;
+        } while (!string.IsNullOrEmpty(cursor));
+
+        _watermarkEpochSeconds = now;
+    }
+
+    // Fires right after a successful GrantAsync to tell the user in chat. Chapter 8 implements the
+    // real thing (prefer a branded service message, fall back to a plain push); it's stubbed here so
+    // Chapter 7 compiles and the reconciliation loop is complete on its own.
+    private Task NotifyPurchaseAsync(
+        string userId,
+        string productId,
+        MiniAppClient miniApp,
+        MessagingClient messaging,
+        INotifierTokenStore notifierTokens,
+        CancellationToken ct)
+        => Task.CompletedTask;
 }
 ```
 
 ## ポーリングループ
 
-```csharp
-protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-{
-    if (!_settings.HasMessaging)
-    {
-        _logger.LogInformation("LINE_CHANNEL_ACCESS_TOKEN is not set — purchase reconciliation is disabled.");
-        return;
-    }
-
-    using var timer = new PeriodicTimer(TimeSpan.FromSeconds(_settings.PollSeconds));
-    do
-    {
-        try { await PollOnceAsync(stoppingToken); }
-        catch (Exception ex) { _logger.LogWarning(ex, "Purchase reconciliation poll failed; will retry next tick."); }
-    } while (await timer.WaitForNextTickAsync(stoppingToken));
-}
-```
-
-ポーリングが失敗しても、例外を捕まえて次のtickでまた試すだけ——webhookハンドラと同じ考え方
+`ExecuteAsync` は `PeriodicTimer` で `PollSeconds` ごとに刻みます。ポーリングが失敗しても、例外を捕まえて
+次のtickでまた試すだけ——webhookハンドラと同じ考え方
 （エラーはログに残して処理は止めない）を、今度はバックグラウンドループに当てはめた形です。ちなみに、
 `CompanionSettings.PollSeconds` を正の値にクランプしていたのも、実はここに効いてきます。
 `PeriodicTimer` のコンストラクタはこの try/catch の *外側* にあり、非正の間隔を渡すと例外を投げて
@@ -73,65 +207,8 @@ protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 
 ## 1回のポーリング: 全ページを歩いてから、ウォーターマークを進める
 
-```csharp
-private async Task PollOnceAsync(CancellationToken ct)
-{
-    using var scope = _scopeFactory.CreateScope();
-    var services = scope.ServiceProvider;
-    var miniApp = services.GetRequiredService<MiniAppClient>();
-    var messaging = services.GetRequiredService<MessagingClient>();
-    var orders = services.GetRequiredService<IOrderStore>();
-    var inventory = services.GetRequiredService<IInventoryStore>();
-    var notifierTokens = services.GetRequiredService<INotifierTokenStore>();
-
-    var start = _watermarkEpochSeconds;
-    var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - TrailingBufferSeconds;
-    string? cursor = null;
-
-    do
-    {
-        var page = await miniApp.GetWebhookEventsAsync(
-            _settings.ChannelAccessToken!, start, now, pageSize: 50, cursor: cursor, status: "SUCCESS", ct);
-
-        foreach (var entry in page?.Events ?? new())
-        {
-            var ev = entry.Event;
-            if (ev?.OrderId is null) continue;
-
-            // Only act on orders this app itself reserved.
-            var order = await orders.TryGetAsync(ev.OrderId, ct);
-            if (order is null) continue;
-
-            // Grant/notify the user LINE itself attributes the purchase to (ev.UserId from LINE's own
-            // payload), not the client-supplied value from reserve time — authoritative even if a
-            // caller lied. Log a mismatch as a spoof signal.
-            var userId = ev.UserId ?? order.UserId;
-            if (ev.UserId is not null && ev.UserId != order.UserId)
-                _logger.LogWarning("Order {OrderId} reserved with {Reserved} but LINE attributes it to {Actual}; using the latter.",
-                    order.OrderId, order.UserId, ev.UserId);
-
-            switch (ev.Type)
-            {
-                case "purchaseComplete":
-                    if (await inventory.GrantAsync(userId, order.OrderId, order.ProductId, ct))
-                    {
-                        _logger.LogInformation("Granted {ProductId} to {UserId} (order {OrderId}).", order.ProductId, userId, order.OrderId);
-                        await NotifyPurchaseAsync(userId, order.ProductId, miniApp, messaging, notifierTokens, ct); // Chapter 8
-                    }
-                    break;
-                case "refundComplete":
-                    await inventory.RevokeAsync(userId, order.OrderId, ct);
-                    break;
-            }
-        }
-        cursor = page?.NextCursor;
-    } while (!string.IsNullOrEmpty(cursor));
-
-    _watermarkEpochSeconds = now; // only after every page in the window succeeded
-}
-```
-
-短いループですが、この中には触れておきたい設計判断がいくつも詰まっています。
+`PollOnceAsync` の全体は上のファイルのとおりです。短いループですが、この中には触れておきたい設計判断が
+いくつも詰まっています。
 
 - **`IOrderStore` が知っている注文だけに手を出す。** 実は `MiniAppWebhookEvent` は最初から
   `UserId`/`ProductId` を持っているので、ユーザーを *解決する* だけなら `OrderStore` は要りません。
