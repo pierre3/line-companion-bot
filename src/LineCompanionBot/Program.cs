@@ -68,6 +68,11 @@ var app = builder.Build();
 
 app.UseExceptionHandler(); // ProblemDetails-shaped 500s for unhandled exceptions, per AddProblemDetails() above
 
+// UseDefaultFiles rewrites a request for the /shop/ directory to /shop/index.html so the MINI App
+// channel's endpoint URL can point at /shop/ rather than the full file name. It must run before
+// UseStaticFiles, which does the actual serving. Neither maps a default document at the wwwroot root
+// (there is no wwwroot/index.html), so the "/" health endpoint below is unaffected.
+app.UseDefaultFiles();
 app.UseStaticFiles(); // serves wwwroot/shop/* (the MINI App front-end)
 
 app.MapGet("/", (CompanionSettings companionSettings) => Results.Ok(new

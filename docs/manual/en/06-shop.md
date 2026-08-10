@@ -212,8 +212,9 @@ services.AddSingleton<INotifierTokenStore, InMemoryNotifierTokenStore>();
 
 Create `src/LineCompanionBot/Endpoints/ShopEndpoints.cs`, grouped under `/api/shop` with
 `MapGroup` (the minimal-API convention once you have more than a couple of related routes). Also
-call `app.UseStaticFiles();` in `Program.cs` to serve `wwwroot/shop/*`, and `app.MapShopEndpoints();`
-next to `app.MapWebhookEndpoint();`.
+call `app.UseDefaultFiles();` then `app.UseStaticFiles();` in `Program.cs` to serve `wwwroot/shop/*`
+(the former rewrites `/shop/` to `/shop/index.html`, so Chapter 9's MINI App endpoint URL can point at
+`/shop/`), and `app.MapShopEndpoints();` next to `app.MapWebhookEndpoint();`.
 
 ```csharp
 using Line.OpenApi.MiniApp;
