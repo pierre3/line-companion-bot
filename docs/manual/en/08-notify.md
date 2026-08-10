@@ -65,7 +65,7 @@ private async Task NotifyPurchaseAsync(
         await messaging.Api.V2.Bot.Message.Push.PostAsync(new PushMessageRequest
         {
             To = userId,
-            Messages = new List<Message> { new TextMessage { Text = $"You received: {itemName}!" } },
+            Messages = new List<Message> { new TextMessage { Type = "text", Text = $"You received: {itemName}!" } },
         }, cancellationToken: ct);
     }
     catch (Exception ex)

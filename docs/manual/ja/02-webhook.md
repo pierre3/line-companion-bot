@@ -63,7 +63,7 @@ public static class WebhookEndpoints
                         await messaging.Api.V2.Bot.Message.Reply.PostAsync(new ReplyMessageRequest
                         {
                             ReplyToken = replyToken,
-                            Messages = new List<Message> { new TextMessage { Text = $"echo: {text.Text}" } },
+                            Messages = new List<Message> { new TextMessage { Type = "text", Text = $"echo: {text.Text}" } },
                         }, cancellationToken: ct);
                     }
                     catch (Exception ex) { app.Logger.LogWarning(ex, "Failed to reply."); }
@@ -87,7 +87,7 @@ app.MapWebhookEndpoint();
 `using LineCompanionBot.Endpoints;` を追加してください——第1章の縮約された `using` ブロックでは、
 まだこれを参照していませんでした。
 
-ここで押さえておきたい、そしてこのアプリ全体で繰り返し顔を出すことになるポイントが3つあります:
+ここで押さえておきたい、そしてこのアプリ全体で繰り返し顔を出すことになるポイントがいくつかあります:
 
 - **`parser` と `messaging` の `[FromServices]` は飾りではなく必須です。** 理由はシンプルで、どちらも
   *条件付きで*登録されるからです（第1章の `HasWebhook` / `HasMessaging` ゲート）。ASP.NET Coreの
@@ -102,6 +102,10 @@ app.MapWebhookEndpoint();
   トークンの期限切れ（有効期間は約1分）でしょう。とはいえLINEは非2xx応答をリトライするので、返信失敗を
   そのまま非2xxに変えてしまうと、今度は重複配信の嵐を招いてしまいます。だからここは例外を捕まえてログに
   残し、それでも200を返します。
+- **メッセージ POCO には必ず `type` 判別子を設定する** ——`new TextMessage { Type = "text", … }` に注目。
+  これらの生成モデルは `type` を初期値なしで持ち、設定されたときだけシリアライズするため、省くと LINE が
+  ボディを `400` で弾きます。[第4章](04-flex-postback.md)の Flex コンポーネントも同様の対応が必要です
+  （`"flex"`/`"bubble"`/`"box"`/`"text"`）。
 
 ## 試してみる — LINEチャネル不要
 

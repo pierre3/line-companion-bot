@@ -62,7 +62,7 @@ public static class WebhookEndpoints
                         await messaging.Api.V2.Bot.Message.Reply.PostAsync(new ReplyMessageRequest
                         {
                             ReplyToken = replyToken,
-                            Messages = new List<Message> { new TextMessage { Text = $"echo: {text.Text}" } },
+                            Messages = new List<Message> { new TextMessage { Type = "text", Text = $"echo: {text.Text}" } },
                         }, cancellationToken: ct);
                     }
                     catch (Exception ex) { app.Logger.LogWarning(ex, "Failed to reply."); }
@@ -86,7 +86,7 @@ app.MapWebhookEndpoint();
 `using LineCompanionBot.Endpoints;` to the top of `Program.cs` — Chapter 1's reduced `using` block
 didn't reference it yet.
 
-Three points that matter here and recur throughout the app:
+A few points that matter here and recur throughout the app:
 
 - **`[FromServices]` is required, not decorative, on `parser` and `messaging`.** Both are
   *conditionally* registered (the `HasWebhook` / `HasMessaging` gates from Chapter 1). ASP.NET
@@ -99,6 +99,10 @@ Three points that matter here and recur throughout the app:
 - **Let a reply failure log, but still return 200.** A reply can fail — most commonly an expired
   reply token (valid ~1 minute). Because LINE retries any non-2xx delivery, turning a reply failure
   into a non-2xx would create a duplicate-delivery storm. So catch it, log it, and return 200 anyway.
+- **Set the `type` discriminator on every message POCO** — note `new TextMessage { Type = "text", … }`.
+  These generated models leave `type` unset by default and serialize it only when assigned, so omitting
+  it makes LINE reject the body with a `400`. The Flex components in [Chapter 4](04-flex-postback.md)
+  need the same treatment (`"flex"`/`"bubble"`/`"box"`/`"text"`).
 
 ## Try it — no LINE channel needed
 

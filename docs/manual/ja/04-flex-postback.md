@@ -28,25 +28,28 @@ public static class PetFlexMessageFactory
 
         var body = new FlexBox
         {
+            Type = "box",
             Layout = FlexBox_layout.Vertical,
             Contents = new List<FlexComponent>
             {
-                new FlexText { Text = $"{StageEmoji(stage)} Lv.{level} ({stage})", Weight = FlexText_weight.Bold, Size = "lg" },
-                new FlexText { Text = $"Hunger {Bar(state.Hunger)} {(int)state.Hunger}%", Size = "sm", Margin = "md" },
-                new FlexText { Text = $"Happy  {Bar(state.Happiness)} {(int)state.Happiness}%", Size = "sm" },
+                new FlexText { Type = "text", Text = $"{StageEmoji(stage)} Lv.{level} ({stage})", Weight = FlexText_weight.Bold, Size = "lg" },
+                new FlexText { Type = "text", Text = $"Hunger {Bar(state.Hunger)} {(int)state.Hunger}%", Size = "sm", Margin = "md" },
+                new FlexText { Type = "text", Text = $"Happy  {Bar(state.Happiness)} {(int)state.Happiness}%", Size = "sm" },
             },
         };
 
         var header = new FlexBox
         {
+            Type = "box",
             Layout = FlexBox_layout.Vertical,
-            Contents = new List<FlexComponent> { new FlexText { Text = state.Name, Weight = FlexText_weight.Bold, Size = "xl" } },
+            Contents = new List<FlexComponent> { new FlexText { Type = "text", Text = state.Name, Weight = FlexText_weight.Bold, Size = "xl" } },
         };
 
         return new FlexMessage
         {
+            Type = "flex",
             AltText = $"{state.Name}: Lv.{level}, Hunger {(int)state.Hunger}%, Happy {(int)state.Happiness}%",
-            Contents = new FlexBubble { Header = header, Body = body },
+            Contents = new FlexBubble { Type = "bubble", Header = header, Body = body },
         };
     }
 
@@ -54,18 +57,20 @@ public static class PetFlexMessageFactory
     {
         var body = new FlexBox
         {
+            Type = "box",
             Layout = FlexBox_layout.Vertical,
             Contents = new List<FlexComponent>
             {
-                new FlexText { Text = $"{state.Name} is too hungry to play.", Weight = FlexText_weight.Bold, Wrap = true },
-                new FlexText { Text = "Feed first, then try again.", Size = "sm", Margin = "md", Wrap = true },
+                new FlexText { Type = "text", Text = $"{state.Name} is too hungry to play.", Weight = FlexText_weight.Bold, Wrap = true },
+                new FlexText { Type = "text", Text = "Feed first, then try again.", Size = "sm", Margin = "md", Wrap = true },
             },
         };
 
         return new FlexMessage
         {
+            Type = "flex",
             AltText = $"{state.Name} is too hungry to play.",
-            Contents = new FlexBubble { Body = body },
+            Contents = new FlexBubble { Type = "bubble", Body = body },
         };
     }
 
@@ -96,6 +101,12 @@ public static class PetFlexMessageFactory
 - **入力面は1つ。** このbubbleにはフッターボタンをあえて置いていません。相棒の世話は、すべてリッチメニュー
   ([第5章](05-rich-menu.md))経由で行うからです。ここでFlexボタンを足して重複させてしまうと、同じことを
   する方法が2つ生まれてしまいます。
+
+> **落とし穴——各ノードに `type` を設定する。** 上のコードで `FlexMessage`/`FlexBubble`/`FlexBox`/`FlexText`
+> がそれぞれ `Type`（`"flex"`/`"bubble"`/`"box"`/`"text"`）を設定している点に注目してください。これらは
+> 素の生成 POCO で `type` 判別子にデフォルト値が無く、設定されたときだけシリアライズされます——省くと
+> LINE が返信ボディを `400` で弾きます。オブジェクトの生成自体はオフラインでも成功するので見落としやすく、
+> 実際に送信する[第9章](09-end-to-end.md)で初めて表面化します。
 
 ## オウム返しをpostback分岐に置き換える
 
