@@ -43,6 +43,163 @@ public static class ShopCatalog
 - **`INotifierTokenStore`** — ユーザーごとに最新の`NotifierToken`を保持します（第8章がこれを
   使って送信します）。
 
+実ファイルは、第3章の `IPetStore` / `InMemoryPetStore` と同じ「インターフェース＋インメモリ実装」の
+対です。順に作成します。まず `src/LineCompanionBot/Persistence/IOrderStore.cs`:
+
+```csharp
+namespace LineCompanionBot.Persistence;
+
+public sealed record ShopOrder(string OrderId, string UserId, string ProductId);
+
+// Recorded at reserve time (Chapter 6), consulted at reconciliation time (Chapter 7) to confirm an
+// IAP webhook event corresponds to an order this app actually initiated.
+public interface IOrderStore
+{
+    Task RecordAsync(string orderId, string userId, string productId, CancellationToken ct = default);
+
+    Task<ShopOrder?> TryGetAsync(string orderId, CancellationToken ct = default);
+}
+```
+
+そのインメモリ実装 `src/LineCompanionBot/Persistence/InMemory/InMemoryOrderStore.cs`:
+
+```csharp
+using System.Collections.Concurrent;
+
+namespace LineCompanionBot.Persistence.InMemory;
+
+public sealed class InMemoryOrderStore : IOrderStore
+{
+    private readonly ConcurrentDictionary<string, ShopOrder> _orders = new();
+
+    public Task RecordAsync(string orderId, string userId, string productId, CancellationToken ct = default)
+    {
+        _orders[orderId] = new ShopOrder(orderId, userId, productId);
+        return Task.CompletedTask;
+    }
+
+    public Task<ShopOrder?> TryGetAsync(string orderId, CancellationToken ct = default)
+        => Task.FromResult(_orders.TryGetValue(orderId, out var order) ? order : null);
+}
+```
+
+次に `src/LineCompanionBot/Persistence/IInventoryStore.cs`:
+
+```csharp
+namespace LineCompanionBot.Persistence;
+
+public sealed record InventoryItem(string OrderId, string ProductId);
+
+public interface IInventoryStore
+{
+    Task<IReadOnlyList<InventoryItem>> GetAsync(string userId, CancellationToken ct = default);
+
+    // Keyed by OrderId so re-scanning an overlapping poll window (e.g. after a restart) can never
+    // double-grant the same purchase — this is what makes reconciliation safe to run idempotently.
+    Task<bool> GrantAsync(string userId, string orderId, string productId, CancellationToken ct = default);
+
+    Task<bool> RevokeAsync(string userId, string orderId, CancellationToken ct = default);
+
+    // Consumes one matching item (e.g. a single-use rare food), removing it. Safe to remove rather
+    // than flag-as-used: the watermark never re-scans history after a restart, so there is no path
+    // that could re-grant (and thus need to re-find) an already-consumed item.
+    Task<bool> TryConsumeAsync(string userId, string productId, CancellationToken ct = default);
+}
+```
+
+そのインメモリ実装 `src/LineCompanionBot/Persistence/InMemory/InMemoryInventoryStore.cs`——付与/取り消し/
+消費と、書き込みと**同じロックの下で**取るスナップショット読み取り:
+
+```csharp
+using System.Collections.Concurrent;
+
+namespace LineCompanionBot.Persistence.InMemory;
+
+public sealed class InMemoryInventoryStore : IInventoryStore
+{
+    private readonly ConcurrentDictionary<string, List<InventoryItem>> _inventory = new();
+
+    // Snapshotted under the same lock Grant/Revoke use — Get is reachable from a GET endpoint
+    // concurrently with the background reconciliation loop mutating the same List<T>, which is
+    // not thread-safe for an unsynchronized read against a locked writer.
+    public Task<IReadOnlyList<InventoryItem>> GetAsync(string userId, CancellationToken ct = default)
+    {
+        if (!_inventory.TryGetValue(userId, out var list))
+            return Task.FromResult<IReadOnlyList<InventoryItem>>(Array.Empty<InventoryItem>());
+        lock (list) { return Task.FromResult<IReadOnlyList<InventoryItem>>(list.ToArray()); }
+    }
+
+    public Task<bool> GrantAsync(string userId, string orderId, string productId, CancellationToken ct = default)
+    {
+        var list = _inventory.GetOrAdd(userId, _ => new List<InventoryItem>());
+        lock (list)
+        {
+            if (list.Any(i => i.OrderId == orderId)) return Task.FromResult(false);
+            list.Add(new InventoryItem(orderId, productId));
+            return Task.FromResult(true);
+        }
+    }
+
+    public Task<bool> RevokeAsync(string userId, string orderId, CancellationToken ct = default)
+    {
+        if (!_inventory.TryGetValue(userId, out var list)) return Task.FromResult(false);
+        lock (list) { return Task.FromResult(list.RemoveAll(i => i.OrderId == orderId) > 0); }
+    }
+
+    public Task<bool> TryConsumeAsync(string userId, string productId, CancellationToken ct = default)
+    {
+        if (!_inventory.TryGetValue(userId, out var list)) return Task.FromResult(false);
+        lock (list)
+        {
+            var index = list.FindIndex(i => i.ProductId == productId);
+            if (index < 0) return Task.FromResult(false);
+            list.RemoveAt(index);
+            return Task.FromResult(true);
+        }
+    }
+}
+```
+
+最後に `src/LineCompanionBot/Persistence/INotifierTokenStore.cs`:
+
+```csharp
+using Line.OpenApi.MiniApp.Models;
+
+namespace LineCompanionBot.Persistence;
+
+// Holds the latest NotifierToken per user. Overwritten whenever a token is (re-)issued or renewed
+// by a send — no history needed, only the most recent token is ever usable.
+public interface INotifierTokenStore
+{
+    Task SaveAsync(string userId, NotifierToken token, CancellationToken ct = default);
+
+    Task<NotifierToken?> TryGetAsync(string userId, CancellationToken ct = default);
+}
+```
+
+そのインメモリ実装 `src/LineCompanionBot/Persistence/InMemory/InMemoryNotifierTokenStore.cs`:
+
+```csharp
+using System.Collections.Concurrent;
+using Line.OpenApi.MiniApp.Models;
+
+namespace LineCompanionBot.Persistence.InMemory;
+
+public sealed class InMemoryNotifierTokenStore : INotifierTokenStore
+{
+    private readonly ConcurrentDictionary<string, NotifierToken> _tokens = new();
+
+    public Task SaveAsync(string userId, NotifierToken token, CancellationToken ct = default)
+    {
+        _tokens[userId] = token;
+        return Task.CompletedTask;
+    }
+
+    public Task<NotifierToken?> TryGetAsync(string userId, CancellationToken ct = default)
+        => Task.FromResult(_tokens.TryGetValue(userId, out var token) ? token : null);
+}
+```
+
 この3つを、`IPetStore`と並べて`AddInMemoryPersistence`に登録します:
 
 ```csharp
@@ -146,6 +303,17 @@ public sealed record ShopReserveRequest(string UserId, string ProductId, string 
 
 ## フロントエンド
 
+ここの静的3ファイル（`index.html` / `shop.js` / `shop.css`）は、以下では要点だけを抜粋します。完全な
+ファイルは参照リポジトリの
+[`src/LineCompanionBot/wwwroot/shop/`](https://github.com/pierre3/line-companion-bot/tree/main/src/LineCompanionBot/wwwroot/shop)
+からそのままコピーしてください——バックエンドと違い、ここは `dotnet build` に影響しない静的アセットで、
+ページを実際に開くのは[第9章](09-end-to-end.md)です:
+
+```powershell
+New-Item -ItemType Directory -Force src/LineCompanionBot/wwwroot/shop | Out-Null
+Copy-Item "path/to/line-companion-bot/src/LineCompanionBot/wwwroot/shop/*" src/LineCompanionBot/wwwroot/shop/
+```
+
 `wwwroot/shop/index.html`は、LINEのCDNからLIFF SDKを、そしてローカルの2ファイルを読み込みます。
 まずはここから見ていきましょう:
 
@@ -210,7 +378,9 @@ MINI App IAPドキュメントで確認済みです）。`createPayment`はキ�
 
 ここまでで Golden Kibble を所有できるようになりました。そこで第4章の`feed`分岐
 （`WebhookEndpoints.cs`）をアップグレードして、この Golden Kibble を消費させます。ハンドラの
-パラメータに`IInventoryStore inventory`を足して、分岐を書き換えます:
+パラメータに`IInventoryStore inventory`を——`IPetStore petStore` の次、`CancellationToken ct` の直前に
+——足して（第4章で追加済みの `using LineCompanionBot.Persistence;` に含まれる型なので、新しい using は
+不要です）、分岐を書き換えます:
 
 ```csharp
 case "action=feed":
@@ -233,10 +403,15 @@ Golden Kibbleを「Hungerを満タンまで回復」と*説明していた*の�
 
 ## 動かしてみる — バックエンドの契約を検証する
 
-ショップの登録が有効になるよう、プレースホルダーのLIFF idを設定して、F5してみましょう:
+ショップの登録が有効になるよう、プレースホルダーのLIFF idを設定します。あわせて
+`LINE_CHANNEL_ACCESS_TOKEN` も必要です——`/reserve` はこれが無いと、下のフィールド/商品検証に進む*前*に
+**503** で短絡するためです。ただし[第4章](04-flex-postback.md)で入れた `demo-token` が user-secrets に
+残っていればそれで足ります。設定してF5します:
 
 ```powershell
 dotnet user-secrets set LINE_MINIAPP_LIFF_ID "1234567890-abcdefgh" --project src/LineCompanionBot
+# 第4章のダミー。user-secrets を消していたら再設定:
+dotnet user-secrets set LINE_CHANNEL_ACCESS_TOKEN "demo-token" --project src/LineCompanionBot
 ```
 
 ```powershell
