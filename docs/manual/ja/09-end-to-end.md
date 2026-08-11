@@ -78,6 +78,125 @@ user-secrets ではなく、環境変数 / `--channel-token` / `line config` プ
 `PurchaseReconciliationService` にブレークポイントを置いて、実際のLINEトラフィックが流れていく様子を
 じっくり観察できます。
 
+## 開発時のみ: 購入をシミュレートする
+
+*本物の*購入をエンドツーエンドで通すことは、ローカルではできません。LINE MINI App のアプリ内課金は、
+テスト決済すら**IAP審査の承認**（数週間・日本限定・事業者向け）が前提で、しかもそれは開発用チャネルに
+登録したテスターでのみ動きます。さらに、ユーザーが実際に課金できるようになるには別途「認証審査」も必要
+です。それらが揃うまでは **Buy は無効**（`liff.isApiAvailable('iap')` が false）で、照合ポーリングは
+`403` をログに出します——これはバグではなく想定どおりの状態です。
+
+そこで、その先の**下流フロー**——付与 → チャット通知 → Feed での Golden Kibble 消費——だけは検証できる
+よう、アプリは購入完了の代役となる**開発時限定**のフックを用意しています。これは**環境が Development の
+ときだけ**マップされます。Production ではエンドポイントは `404` を返し、`config.devPurchaseEnabled` は
+`false` になるので、デプロイ後のアプリには一切含まれません。
+
+> **注意——この dev フックは無認可です。** 認証チェックなしで、任意の `userId` に在庫を付与し push を
+> 送れます。`localhost` なら無害ですが、上の起動手順は Development サーバを `devtunnel …
+> --allow-anonymous` で公開します。トンネルが開いている間は、URL を知っている第三者もこのエンドポイント
+> に到達できます（既知の userId への push スパム等）。トンネルは短時間に留め、URL を共有せず、テストが
+> 終わったら閉じてください。Production には存在しません。
+
+`ShopEndpoints.cs` に次を足します（using が3本増えます: `Line.OpenApi.Messaging`、
+`Line.OpenApi.Messaging.Generated.Api.Models`、`Microsoft.AspNetCore.Mvc`）。環境を一度だけ取得し、
+`/config` で公開し、`isDev` ガードの内側にエンドポイントをマップします:
+
+```csharp
+var isDev = app.Environment.IsDevelopment();
+
+group.MapGet("/config", (CompanionSettings settings) =>
+    Results.Ok(new { liffId = settings.LiffId, devPurchaseEnabled = isDev }));
+
+// ...第6章の /reserve エンドポイント...
+
+if (isDev)
+{
+    // Stand in for a completed IAP purchase: grant the item and send the same push
+    // PurchaseReconciliationService would on a purchaseComplete event, without touching LINE's IAP
+    // endpoints — so it works even when isApiAvailable('iap') is false. Mapped only in Development.
+    group.MapPost("/dev/complete-purchase", async (
+        DevCompletePurchaseRequest req,
+        [FromServices] MessagingClient? messaging,
+        IOrderStore orderStore,
+        IInventoryStore inventory,
+        CancellationToken ct) =>
+    {
+        if (string.IsNullOrWhiteSpace(req.UserId) || string.IsNullOrWhiteSpace(req.ProductId))
+            return Results.Problem("userId and productId are required.", statusCode: 400);
+
+        var item = ShopCatalog.Find(req.ProductId);
+        if (item is null)
+            return Results.Problem($"Unknown productId '{req.ProductId}'.", statusCode: 404);
+
+        var orderId = $"dev-{Guid.NewGuid():N}";
+        await orderStore.RecordAsync(orderId, req.UserId, item.ProductId, ct);
+        var granted = await inventory.GrantAsync(req.UserId, orderId, item.ProductId, ct);
+
+        if (granted && messaging is not null)
+        {
+            try
+            {
+                await messaging.Api.V2.Bot.Message.Push.PostAsync(new PushMessageRequest
+                {
+                    To = req.UserId,
+                    Messages = new List<Message> { new TextMessage { Type = "text", Text = $"You received: {item.Name}!" } },
+                }, cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                app.Logger.LogWarning(ex, "Dev complete-purchase: push failed for {UserId}.", req.UserId);
+            }
+        }
+
+        return Results.Ok(new { orderId, granted, notified = granted && messaging is not null });
+    });
+}
+```
+
+リクエストのレコードは `ShopReserveRequest` の隣に:
+
+```csharp
+public sealed record DevCompletePurchaseRequest(string UserId, string ProductId);
+```
+
+`shop.js` は `config.devPurchaseEnabled` が true のとき、各アイテムの隣に **Mark purchased (dev)**
+ボタンを描画します（Buy が無効でも押せます）:
+
+```js
+if (devPurchaseEnabled) {
+  const devButton = document.createElement('button');
+  devButton.textContent = 'Mark purchased (dev)';
+  devButton.addEventListener('click', () => devComplete(item, devButton));
+  li.appendChild(devButton);
+}
+
+async function devComplete(item, button) {
+  button.disabled = true;
+  try {
+    const profile = await liff.getProfile();
+    const res = await fetch('/api/shop/dev/complete-purchase', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: profile.userId, productId: item.productId }),
+    });
+    if (!res.ok) { statusEl.textContent = `Dev grant failed for ${item.name} (HTTP ${res.status}).`; return; }
+    const result = await res.json();
+    statusEl.textContent = result.notified
+      ? `Dev: granted ${item.name}. Check the chat, then tap Feed.`
+      : `Dev: granted ${item.name} (no push — LINE_CHANNEL_ACCESS_TOKEN unset). Tap Feed.`;
+  } finally { button.disabled = false; }
+}
+```
+
+**Golden Kibble** の **Mark purchased (dev)** を押す（または下の `curl` を直接叩く）と、チャットに
+「You received: Golden Kibble!」の push が届き、`GET /api/shop/inventory/{userId}` にアイテムが入り、
+次に **Feed** をタップすると Kibble が消費されて Hunger が満タンまで回復するはずです。LINE の課金処理
+そのもの以外、本物の `purchaseComplete` が起こすことをすべて再現できます:
+
+```powershell
+curl -X POST http://localhost:5091/api/shop/dev/complete-purchase `
+    -H 'Content-Type: application/json' -d '{"userId":"<自分のuserId>","productId":"rare-food"}'
+```
+
 ## トラブルシューティング
 
 - **リッチメニューが出ない / タップしても何も起きない。** まず、`line richmenu set-default` が成功

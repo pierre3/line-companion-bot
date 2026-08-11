@@ -1,7 +1,10 @@
+using Line.OpenApi.Messaging;
+using Line.OpenApi.Messaging.Generated.Api.Models;
 using Line.OpenApi.MiniApp;
 using Line.OpenApi.MiniApp.Models;
 using LineCompanionBot.Persistence;
 using LineCompanionBot.Services;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
 namespace LineCompanionBot.Endpoints;
@@ -14,7 +17,12 @@ public static class ShopEndpoints
     {
         var group = app.MapGroup("/api/shop");
 
-        group.MapGet("/config", (CompanionSettings settings) => Results.Ok(new { liffId = settings.LiffId }));
+        // Development-only test hook is mapped only when the environment is Development, so a deployed
+        // (Production) app never exposes it (see the /dev/complete-purchase endpoint below). Surfaced
+        // to the front end via /config so shop.js can offer a "mark purchased" button.
+        var isDev = app.Environment.IsDevelopment();
+
+        group.MapGet("/config", (CompanionSettings settings) => Results.Ok(new { liffId = settings.LiffId, devPurchaseEnabled = isDev }));
 
         group.MapGet("/catalog", () => Results.Ok(ShopCatalog.Items));
 
@@ -95,9 +103,67 @@ public static class ShopEndpoints
             await orderStore.RecordAsync(reserved.OrderId, req.UserId, item.ProductId, CancellationToken.None);
             return Results.Ok(new { orderId = reserved.OrderId });
         });
+
+        if (isDev)
+        {
+            // Development-only: stand in for a completed IAP purchase. LINE MINI App in-app purchase
+            // needs an approved IAP review (weeks-long, Japan-only, business) before even test
+            // payments work, so the grant/notify path can't be driven from a real purchase locally.
+            // This grants the item and sends the same push PurchaseReconciliationService would on a
+            // purchaseComplete event, letting the downstream flow (inventory, chat notification,
+            // Golden Kibble consumption on feed) be verified without a real payment. Mapped only in
+            // the Development environment, so it never exists in a deployed app. It does NOT touch
+            // LINE's IAP endpoints, so it works even when isApiAvailable('iap') is false.
+            group.MapPost("/dev/complete-purchase", async (
+                DevCompletePurchaseRequest req,
+                [FromServices] MessagingClient? messaging,
+                IOrderStore orderStore,
+                IInventoryStore inventory,
+                CancellationToken ct) =>
+            {
+                if (string.IsNullOrWhiteSpace(req.UserId) || string.IsNullOrWhiteSpace(req.ProductId))
+                    return Results.Problem("userId and productId are required.", statusCode: 400);
+
+                var item = ShopCatalog.Find(req.ProductId);
+                if (item is null)
+                    return Results.Problem($"Unknown productId '{req.ProductId}'.", statusCode: 404);
+
+                // Synthesize a unique order id (dev- prefixed so it never collides with a real LINE
+                // order). GrantAsync keys off OrderId exactly as in the reconciliation path; since
+                // each dev click is a distinct order, repeated clicks stack items — handy for testing
+                // consumption — rather than being deduped.
+                var orderId = $"dev-{Guid.NewGuid():N}";
+                await orderStore.RecordAsync(orderId, req.UserId, item.ProductId, ct);
+                var granted = await inventory.GrantAsync(req.UserId, orderId, item.ProductId, ct);
+
+                if (granted && messaging is not null)
+                {
+                    try
+                    {
+                        await messaging.Api.V2.Bot.Message.Push.PostAsync(new PushMessageRequest
+                        {
+                            To = req.UserId,
+                            Messages = new List<Message> { new TextMessage { Type = "text", Text = $"You received: {item.Name}!" } },
+                        }, cancellationToken: ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        app.Logger.LogWarning(ex, "Dev complete-purchase: push failed for {UserId}.", req.UserId);
+                    }
+                }
+
+                // notified reflects whether the push was actually attempted: without a configured
+                // LINE_CHANNEL_ACCESS_TOKEN there is no MessagingClient, so the item is granted but no
+                // chat message is sent — the front end uses this to avoid claiming otherwise.
+                return Results.Ok(new { orderId, granted, notified = granted && messaging is not null });
+            });
+        }
     }
 }
 
 // The front end supplies userId/clientOs itself (from liff.getProfile()/liff.getOS()) since
 // ReserveProductAsync's other inputs don't yield a LINE user id on their own.
 public sealed record ShopReserveRequest(string UserId, string ProductId, string LiffAccessToken, string? ClientOs);
+
+// Body for the Development-only /api/shop/dev/complete-purchase test hook.
+public sealed record DevCompletePurchaseRequest(string UserId, string ProductId);

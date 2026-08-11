@@ -15,6 +15,7 @@ async function main() {
   }
 
   const iapAvailable = liff.isApiAvailable('iap');
+  const devPurchaseEnabled = config.devPurchaseEnabled;
   statusEl.textContent = 'Choose an item:';
   const catalog = await fetch('/api/shop/catalog').then(r => r.json());
   for (const item of catalog) {
@@ -23,10 +24,22 @@ async function main() {
       <button data-product-id="${item.productId}" ${iapAvailable ? '' : 'disabled'}>Buy</button>`;
     const button = li.querySelector('button');
     button.addEventListener('click', () => buy(item, button));
+    // Development-only shortcut (see /api/shop/dev/complete-purchase): grant the item without the real
+    // IAP flow, so the downstream grant/notify/consume path can be tested before the MINI App's
+    // in-app purchase review is approved. The server only exposes this in Development, so
+    // config.devPurchaseEnabled is false — and this button absent — in a deployed app.
+    if (devPurchaseEnabled) {
+      const devButton = document.createElement('button');
+      devButton.textContent = 'Mark purchased (dev)';
+      devButton.addEventListener('click', () => devComplete(item, devButton));
+      li.appendChild(devButton);
+    }
     catalogEl.appendChild(li);
   }
   if (!iapAvailable) {
-    statusEl.textContent = 'In-app purchase is not available in this client — Buy is disabled.';
+    statusEl.textContent = devPurchaseEnabled
+      ? 'In-app purchase is unavailable here — use "Mark purchased (dev)" to test the downstream flow.'
+      : 'In-app purchase is not available in this client — Buy is disabled.';
   }
 }
 
@@ -67,6 +80,31 @@ async function buy(item, button) {
     } catch (err) {
       statusEl.textContent = `Purchase for ${item.name} was cancelled or failed: ${err.message ?? err}`;
     }
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// Development-only: bypass the real payment and ask the server to treat the item as purchased.
+async function devComplete(item, button) {
+  button.disabled = true;
+  try {
+    const profile = await liff.getProfile();
+    const res = await fetch('/api/shop/dev/complete-purchase', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: profile.userId, productId: item.productId }),
+    });
+    if (!res.ok) {
+      statusEl.textContent = `Dev grant failed for ${item.name} (HTTP ${res.status}).`;
+      return;
+    }
+    const result = await res.json();
+    statusEl.textContent = result.notified
+      ? `Dev: granted ${item.name}. Check the chat for the notification, then tap Feed.`
+      : `Dev: granted ${item.name} (no push — LINE_CHANNEL_ACCESS_TOKEN is unset). Tap Feed.`;
+  } catch (err) {
+    statusEl.textContent = `Dev grant error: ${err.message ?? err}`;
   } finally {
     button.disabled = false;
   }

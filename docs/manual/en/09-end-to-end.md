@@ -75,6 +75,126 @@ profile — not from user-secrets.)
 You can keep the VS Code debugger attached the whole time — set breakpoints in `WebhookEndpoints` or
 `PurchaseReconciliationService` and watch real LINE traffic flow through.
 
+## Development-only: simulate a purchase
+
+Driving a *real* purchase end to end isn't possible locally. LINE MINI App in-app purchase requires
+an approved **IAP review** (weeks-long, Japan-only, and for a business) before even test payments
+work — and those only run in a Developing channel with registered testers — plus a separate
+verification review before users can actually pay. Until all that is in place, **Buy** stays disabled
+(`liff.isApiAvailable('iap')` is false) and the reconciliation poll logs a `403`. That's expected,
+not a bug.
+
+To still verify the *downstream* flow — grant → chat notification → Golden Kibble consumption on
+Feed — the app exposes a **Development-only** stand-in for a completed purchase. It is mapped **only
+when the environment is Development**: in Production the endpoint returns `404` and
+`config.devPurchaseEnabled` is `false`, so none of this ships in a deployed app.
+
+> **Caution — the dev hook is unauthenticated.** It grants items and pushes a message to any `userId`
+> with no auth check. Harmless on `localhost`, but the launch step above hosts the Development server
+> through `devtunnel … --allow-anonymous`: while that tunnel is open, anyone who has the URL can reach
+> this endpoint too (e.g. to spam pushes to user ids they know). Keep the tunnel short-lived, don't
+> share the URL, and close it when you're done testing. It never exists in Production.
+
+Add the hook to `ShopEndpoints.cs` (it needs three more `using`s: `Line.OpenApi.Messaging`,
+`Line.OpenApi.Messaging.Generated.Api.Models`, and `Microsoft.AspNetCore.Mvc`). Capture the
+environment once, surface it through `/config`, and map the endpoint behind an `isDev` guard:
+
+```csharp
+var isDev = app.Environment.IsDevelopment();
+
+group.MapGet("/config", (CompanionSettings settings) =>
+    Results.Ok(new { liffId = settings.LiffId, devPurchaseEnabled = isDev }));
+
+// ...the /reserve endpoint from Chapter 6...
+
+if (isDev)
+{
+    // Stand in for a completed IAP purchase: grant the item and send the same push
+    // PurchaseReconciliationService would on a purchaseComplete event, without touching LINE's IAP
+    // endpoints — so it works even when isApiAvailable('iap') is false. Mapped only in Development.
+    group.MapPost("/dev/complete-purchase", async (
+        DevCompletePurchaseRequest req,
+        [FromServices] MessagingClient? messaging,
+        IOrderStore orderStore,
+        IInventoryStore inventory,
+        CancellationToken ct) =>
+    {
+        if (string.IsNullOrWhiteSpace(req.UserId) || string.IsNullOrWhiteSpace(req.ProductId))
+            return Results.Problem("userId and productId are required.", statusCode: 400);
+
+        var item = ShopCatalog.Find(req.ProductId);
+        if (item is null)
+            return Results.Problem($"Unknown productId '{req.ProductId}'.", statusCode: 404);
+
+        var orderId = $"dev-{Guid.NewGuid():N}";
+        await orderStore.RecordAsync(orderId, req.UserId, item.ProductId, ct);
+        var granted = await inventory.GrantAsync(req.UserId, orderId, item.ProductId, ct);
+
+        if (granted && messaging is not null)
+        {
+            try
+            {
+                await messaging.Api.V2.Bot.Message.Push.PostAsync(new PushMessageRequest
+                {
+                    To = req.UserId,
+                    Messages = new List<Message> { new TextMessage { Type = "text", Text = $"You received: {item.Name}!" } },
+                }, cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                app.Logger.LogWarning(ex, "Dev complete-purchase: push failed for {UserId}.", req.UserId);
+            }
+        }
+
+        return Results.Ok(new { orderId, granted, notified = granted && messaging is not null });
+    });
+}
+```
+
+with the request record alongside `ShopReserveRequest`:
+
+```csharp
+public sealed record DevCompletePurchaseRequest(string UserId, string ProductId);
+```
+
+`shop.js` renders a **Mark purchased (dev)** button next to each item when `config.devPurchaseEnabled`
+is true, so it's clickable even though Buy is disabled:
+
+```js
+if (devPurchaseEnabled) {
+  const devButton = document.createElement('button');
+  devButton.textContent = 'Mark purchased (dev)';
+  devButton.addEventListener('click', () => devComplete(item, devButton));
+  li.appendChild(devButton);
+}
+
+async function devComplete(item, button) {
+  button.disabled = true;
+  try {
+    const profile = await liff.getProfile();
+    const res = await fetch('/api/shop/dev/complete-purchase', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: profile.userId, productId: item.productId }),
+    });
+    if (!res.ok) { statusEl.textContent = `Dev grant failed for ${item.name} (HTTP ${res.status}).`; return; }
+    const result = await res.json();
+    statusEl.textContent = result.notified
+      ? `Dev: granted ${item.name}. Check the chat, then tap Feed.`
+      : `Dev: granted ${item.name} (no push — LINE_CHANNEL_ACCESS_TOKEN unset). Tap Feed.`;
+  } finally { button.disabled = false; }
+}
+```
+
+Tap **Mark purchased (dev)** on **Golden Kibble** (or `curl` the endpoint directly) and you should see
+the "You received: Golden Kibble!" push in chat, the item in `GET /api/shop/inventory/{userId}`, and —
+on the next **Feed** tap — Hunger refilled to full as the Kibble is consumed. That drives everything a
+real `purchaseComplete` would, short of LINE's billing itself:
+
+```powershell
+curl -X POST http://localhost:5091/api/shop/dev/complete-purchase `
+    -H 'Content-Type: application/json' -d '{"userId":"<your userId>","productId":"rare-food"}'
+```
+
 ## Troubleshooting
 
 - **Rich menu doesn't appear / tapping does nothing.** Confirm `line richmenu set-default` succeeded
