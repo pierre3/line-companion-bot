@@ -17,7 +17,7 @@ public class FlexMessageDiscriminatorTests
     [Fact]
     public void BuildStatus_SetsTypeDiscriminatorOnEveryNode()
     {
-        var message = PetFlexMessageFactory.BuildStatus(NewState());
+        var message = PetFlexMessageFactory.BuildStatus(NewState(), rareFoodCount: 0);
 
         Assert.Equal("flex", message.Type);
         var bubble = Assert.IsType<FlexBubble>(message.Contents);

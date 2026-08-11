@@ -19,23 +19,41 @@ using Line.OpenApi.Messaging.Generated.Api.Models;
 
 namespace LineCompanionBot.Services;
 
+// What a feed/play action just restored, surfaced on the status card so the three actions don't all
+// render identically. Null on a plain status check (nothing was restored).
+public sealed record CareFeedback(int HungerGain, int HappinessGain);
+
 public static class PetFlexMessageFactory
 {
-    public static FlexMessage BuildStatus(PetState state)
+    public static FlexMessage BuildStatus(PetState state, int rareFoodCount, CareFeedback? feedback = null)
     {
         var level = PetGrowthEngine.Level(state);
         var stage = PetGrowthEngine.Stage(state);
+        var xpToNext = PetGrowthEngine.XpPerLevel - state.Xp % PetGrowthEngine.XpPerLevel;
+
+        var contents = new List<FlexComponent>();
+
+        // Prominent centered banner for the amount the just-taken action restored, so feed/play/status
+        // read differently. Given its own line at the top rather than appended to a bar, which overflowed
+        // the card width on narrow screens.
+        var banner = GainBanner(feedback);
+        if (banner is not null)
+            contents.Add(banner);
+
+        contents.Add(new FlexText { Type = "text", Text = $"{StageEmoji(stage)} Lv.{level} ({stage})", Weight = FlexText_weight.Bold, Size = "lg", Margin = banner is null ? null : "md" });
+        contents.Add(new FlexText { Type = "text", Text = $"XP {state.Xp} · {xpToNext} to next Lv", Size = "sm", Margin = "md" }); // ·
+        contents.Add(new FlexText { Type = "text", Text = $"Hunger {Bar(state.Hunger)} {(int)state.Hunger}%", Size = "sm", Margin = "md" });
+        contents.Add(new FlexText { Type = "text", Text = $"Happy  {Bar(state.Happiness)} {(int)state.Happiness}%", Size = "sm" });
+
+        // Only surfaced once the user actually owns rare food — no line (and no "x0" clutter) otherwise.
+        if (rareFoodCount > 0)
+            contents.Add(new FlexText { Type = "text", Text = $"\U0001F356 Golden Kibble ×{rareFoodCount}", Size = "sm", Margin = "md" }); // 🍖 ×
 
         var body = new FlexBox
         {
             Type = "box",
             Layout = FlexBox_layout.Vertical,
-            Contents = new List<FlexComponent>
-            {
-                new FlexText { Type = "text", Text = $"{StageEmoji(stage)} Lv.{level} ({stage})", Weight = FlexText_weight.Bold, Size = "lg" },
-                new FlexText { Type = "text", Text = $"Hunger {Bar(state.Hunger)} {(int)state.Hunger}%", Size = "sm", Margin = "md" },
-                new FlexText { Type = "text", Text = $"Happy  {Bar(state.Happiness)} {(int)state.Happiness}%", Size = "sm" },
-            },
+            Contents = contents,
         };
 
         var header = new FlexBox
@@ -45,10 +63,14 @@ public static class PetFlexMessageFactory
             Contents = new List<FlexComponent> { new FlexText { Type = "text", Text = state.Name, Weight = FlexText_weight.Bold, Size = "xl" } },
         };
 
+        var altText = $"{state.Name}: Lv.{level}, Hunger {(int)state.Hunger}%, Happy {(int)state.Happiness}%";
+        if (rareFoodCount > 0)
+            altText += $", Golden Kibble x{rareFoodCount}";
+
         return new FlexMessage
         {
             Type = "flex",
-            AltText = $"{state.Name}: Lv.{level}, Hunger {(int)state.Hunger}%, Happy {(int)state.Happiness}%",
+            AltText = altText,
             Contents = new FlexBubble { Type = "bubble", Header = header, Body = body },
         };
     }
@@ -74,6 +96,16 @@ public static class PetFlexMessageFactory
         };
     }
 
+    // A big, centered "+N" line for the stat the action just restored, or null on a plain status check.
+    private static FlexText? GainBanner(CareFeedback? feedback)
+    {
+        if (feedback is { HungerGain: > 0 } fed)
+            return new FlexText { Type = "text", Text = $"\U0001F354 +{fed.HungerGain}", Weight = FlexText_weight.Bold, Size = "xxl", Align = FlexText_align.Center, Color = "#F0932B" }; // 🍔
+        if (feedback is { HappinessGain: > 0 } played)
+            return new FlexText { Type = "text", Text = $"❤ +{played.HappinessGain}", Weight = FlexText_weight.Bold, Size = "xxl", Align = FlexText_align.Center, Color = "#EB4D4B" }; // ❤
+        return null;
+    }
+
     private static string StageEmoji(PetStage stage) => stage switch
     {
         PetStage.Hatchling => "\U0001F95A", // egg
@@ -89,6 +121,18 @@ public static class PetFlexMessageFactory
     }
 }
 ```
+
+The card `BuildStatus` draws varies by action. It always shows **Lv./stage**, **current XP and how
+much is left to the next level**, and the Hunger/Happy bars, and on top of that:
+
+- **On feed / play**, the amount restored appears as a big centered banner (`🍔 +N` / `❤ +N`), passed
+  via `CareFeedback`; a plain `status` check shows none. It's a separate centered line rather than
+  appended to a bar, which overflowed the card width on narrow screens.
+- **When the user owns rare food (Golden Kibble)**, its count is shown. The count comes in as
+  `rareFoodCount`, but the shop doesn't arrive until [Chapter 6](06-shop.md), so this chapter always
+  passes `0` (i.e. no line).
+
+That's what makes the three actions distinguishable at a glance.
 
 `BuildPlayRefused` is the failure-branch counterpart, shown when `PetGrowthEngine.Play` returns
 `Success: false`. Two design choices behind the card:
@@ -132,21 +176,28 @@ foreach (var ev in callback.Events ?? new())
     switch (postback.Postback?.Data)
     {
         case "action=feed":
+            var decayedBeforeFeed = PetGrowthEngine.ApplyDecay(pet, now);
             pet = PetGrowthEngine.Feed(pet, now);   // Chapter 6 upgrades this branch to consume Golden Kibble
             await petStore.SaveAsync(pet, ct);
-            reply = PetFlexMessageFactory.BuildStatus(pet);
+            // No shop yet, so rareFoodCount is 0; Chapter 6 wires it to real inventory.
+            reply = PetFlexMessageFactory.BuildStatus(
+                pet, rareFoodCount: 0,
+                new CareFeedback((int)Math.Round(pet.Hunger - decayedBeforeFeed.Hunger), 0));
             break;
         case "action=play":
+            var decayedBeforePlay = PetGrowthEngine.ApplyDecay(pet, now);
             var played = PetGrowthEngine.Play(pet, now);
             await petStore.SaveAsync(played.State, ct);
             reply = played.Success
-                ? PetFlexMessageFactory.BuildStatus(played.State)
+                ? PetFlexMessageFactory.BuildStatus(
+                    played.State, rareFoodCount: 0,
+                    new CareFeedback(0, (int)Math.Round(played.State.Happiness - decayedBeforePlay.Happiness)))
                 : PetFlexMessageFactory.BuildPlayRefused(played.State);
             break;
         case "action=status":
             pet = PetGrowthEngine.Status(pet, now);
             await petStore.SaveAsync(pet, ct);
-            reply = PetFlexMessageFactory.BuildStatus(pet);
+            reply = PetFlexMessageFactory.BuildStatus(pet, rareFoodCount: 0);
             break;
         default:
             continue; // unrecognized postback data

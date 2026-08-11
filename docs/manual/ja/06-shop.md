@@ -390,11 +390,16 @@ case "action=feed":
     // 両方の呼び出しで CancellationToken.None を使う。TryConsumeAsync は true を返した瞬間にアイテムを
     // 取り除くので、その間にキャンセルが割り込んで対応する SaveAsync を飛ばしてはならない。さもないと
     // アイテムだけ消費されて何も付与されない。
+    var decayedBeforeFeed = PetGrowthEngine.ApplyDecay(pet, now);
     pet = await inventory.TryConsumeAsync(userId, "rare-food", CancellationToken.None)
         ? PetGrowthEngine.FeedRare(pet, now)
         : PetGrowthEngine.Feed(pet, now);
     await petStore.SaveAsync(pet, CancellationToken.None);
-    reply = PetFlexMessageFactory.BuildStatus(pet);
+    // 実際に回復した Hunger（クランプ後）を表示する。名目上の値ではない。
+    reply = PetFlexMessageFactory.BuildStatus(
+        pet,
+        await RareFoodCountAsync(inventory, userId, ct),
+        new CareFeedback((int)Math.Round(pet.Hunger - decayedBeforeFeed.Hunger), 0));
     break;
 ```
 
@@ -402,6 +407,23 @@ case "action=feed":
 「Hungerを満タンまで回復」と*説明していた*のに、実際にはそれを消費する経路がどこにも無く、
 購入しても何の効果も見られない、とレビュアーに指摘されていました。今は、1つ持った状態でfeedすれば、
 それをきちんと消費してフル回復します。
+
+あわせて、カードに**レア餌の所持数**を出せるようにします。第4章では在庫がまだ無かったため
+`BuildStatus` に `rareFoodCount: 0` を渡していました。ここで所持数を数える小さなヘルパーを
+`WebhookEndpoints` に足し（`MapWebhookEndpoint` の隣）、`play`/`status` 側の `rareFoodCount: 0` も
+`await RareFoodCountAsync(inventory, userId, ct)` に置き換えます:
+
+```csharp
+// カードに表示する、ユーザーが今持っている消費型「rare-food」（Golden Kibble）の個数。
+private static async Task<int> RareFoodCountAsync(IInventoryStore inventory, string userId, CancellationToken ct)
+{
+    var items = await inventory.GetAsync(userId, ct);
+    return items.Count(i => i.ProductId == "rare-food");
+}
+```
+
+これで Golden Kibble を持っているあいだは、どのアクションのカードにもその個数（`🍖 Golden Kibble ×N`）が
+表示されます。
 
 ## 動かしてみる — バックエンドの契約を検証する
 
