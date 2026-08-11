@@ -40,7 +40,7 @@ private async Task NotifyPurchaseAsync(
     if (token?.NotificationToken is not null)
     {
         // Only the send call itself gates the fallback — bookkeeping after a successful send (saving
-        // the renewed token) must never cause a duplicate push if it were to throw.
+        // the renewed token) must never cause a duplicate push if it were to fail.
         NotifierToken? renewed = null;
         try
         {
@@ -70,8 +70,9 @@ private async Task NotifyPurchaseAsync(
     }
     catch (Exception ex)
     {
-        // Both paths failed: the item is durably granted (Chapter 7's idempotency) but the user was
-        // never told, and nothing retries this — surface it loudly, not at Warning.
+        // Both notification paths failed: the item is durably granted (Chapter 7's idempotency
+        // guarantee) but the user was never told. Nothing else retries this, so surface it loudly
+        // rather than at Warning level.
         _logger.LogError(ex, "Both service message and push fallback failed for {UserId} — item was granted but never announced.", userId);
     }
 }

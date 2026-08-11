@@ -181,8 +181,9 @@ async function devComplete(item, button) {
     if (!res.ok) { statusEl.textContent = `Dev grant failed for ${item.name} (HTTP ${res.status}).`; return; }
     const result = await res.json();
     statusEl.textContent = result.notified
-      ? `Dev: granted ${item.name}. Check the chat, then tap Feed.`
-      : `Dev: granted ${item.name} (no push — LINE_CHANNEL_ACCESS_TOKEN unset). Tap Feed.`;
+      ? `Dev: granted ${item.name}. Check the chat for the notification, then tap Feed.`
+      : `Dev: granted ${item.name} (no push — LINE_CHANNEL_ACCESS_TOKEN is unset). Tap Feed.`;
+  } catch (err) { statusEl.textContent = `Dev grant error: ${err.message ?? err}`;
   } finally { button.disabled = false; }
 }
 ```
