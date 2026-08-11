@@ -2,23 +2,23 @@
 
 # 第9章 — 実チャネルでのエンドツーエンドとトラブルシューティング
 
-これまでの各章では、それぞれの部品をローカルで確かめてきました——署名のラウンドトリップ、postbackの
-ディスパッチ、Flexの構築、ショップのHTTP契約、ポーリングと再試行のループ——いずれも
-実LINEチャネル抜きで、です。さて、この章はその残りの部分にあたります。すべてを一緒に動かすために
-実チャネルを配線すること、そして——正直なところ——何がうまくいかなくなりがちか、という話です。
+これまでの各章では、それぞれの部品をローカルで確かめてきました。署名のラウンドトリップ、postbackの
+ディスパッチ、Flexの構築、ショップのHTTP契約、ポーリングと再試行のループ、いずれも実LINEチャネル
+抜きでです。この章はその残りの部分にあたります。すべてを一緒に動かすために実チャネルをつなぐこと、
+そして正直なところ、何がうまくいかなくなりがちか、という話です。
 
-## コンソール設定——行き詰まりを避ける順序で
+## コンソール設定 — 行き詰まりを避ける順序で
 
 1. **Messaging APIチャネルを作成する。**
    [LINE Developers Console](https://developers.line.biz/console/) で作成し、**channel secret** を
    控えたうえで、**channel access token** を発行します。
 2. **LINE MINI Appチャネルを作成する。** 同じプロバイダーの下に作成します。これは通常のLIFFアプリ
-   とは別個のプロダクトで、独自の審査 / トライアルユーザーのフローを持っています——full review なしで
+   とは別個のプロダクトで、独自の審査 / トライアルユーザーのフローを持っています。full review なしで
    テストできるよう、自分自身を **trial user** として追加しておいてください。割り当てられた
    **LIFF ID** を控えます。
-3. 実はこの順序を取り違えること——MINI Appチャネルが、Messaging APIチャネルとは別個の独自プロバイダー
-   設定を必要とする、という点を理解する前に登録しようとしてしまうこと——が、ここでいちばん起こりやすい
-   現実のつまずきどころです。コードの中のどんな落とし穴よりも、です。
+3. 実はこの順序を取り違えること、つまりMINI Appチャネルが、Messaging APIチャネルとは別個の独自
+   プロバイダー設定を必要とする点を理解する前に登録しようとしてしまうことが、ここでいちばん起こり
+   やすい現実のつまずきどころです。コードの中のどんな落とし穴よりも、です。
 
 ## シークレットを user-secrets に入れる
 
@@ -29,7 +29,7 @@ Getting started でも触れたとおり、シークレットは `dotnet user-se
 dotnet user-secrets set LINE_CHANNEL_SECRET       "<channel secret>"       --project src/LineCompanionBot
 dotnet user-secrets set LINE_CHANNEL_ACCESS_TOKEN "<channel access token>" --project src/LineCompanionBot
 dotnet user-secrets set LINE_MINIAPP_LIFF_ID      "<liff id>"              --project src/LineCompanionBot
-# optional, for the service-message path instead of push:
+# 任意。push ではなくサービスメッセージ経路を使う場合:
 # dotnet user-secrets set LINE_MINIAPP_TEMPLATE_NAME "<approved template name>" --project src/LineCompanionBot
 ```
 
@@ -40,7 +40,7 @@ user-secrets ではなく、環境変数 / `--channel-token` / `line config` プ
 
 ## 立ち上げる
 
-1. **リッチメニューを一度だけ作成・設定する** ——`line` ツールを使います（[第5章](05-rich-menu.md)）。
+1. **リッチメニューを一度だけ作成・設定する:** `line` ツールを使います（[第5章](05-rich-menu.md)）。
    先に `richmenu.json` の `YOUR_LIFF_ID` を自分の LIFF id へ置き換え、ツールにトークンを渡し
    （user-secrets は読みません）、3ステップを実行します。`create` が出力する id を次の2つに渡します:
 
@@ -51,10 +51,10 @@ user-secrets ではなく、環境変数 / `--channel-token` / `line config` プ
    line richmenu set-default <richMenuId>
    ```
 2. **アプリを起動する:** **F5** を押すだけです。
-3. **devトンネルで公開する** ——LINEがこちらのwebhookに到達できるようにするためです:
+3. **devトンネルで公開する:** LINEがこちらのwebhookに到達できるようにするためです:
 
    ```powershell
-   devtunnel user login       # first time only
+   devtunnel user login       # 初回のみ
    devtunnel host -p 5091 --allow-anonymous
    ```
 
@@ -64,17 +64,17 @@ user-secrets ではなく、環境変数 / `--channel-token` / `line config` プ
 ## フルループを試す
 
 1. Botを友だち追加します。すると、リッチメニュー（Feed / Play / Status / Shop）が即座に表示される
-   はずです——`line richmenu set-default` が効いている、何よりの証拠ですね。
-2. **Feed / Play / Status** をタップしてみます——それぞれ約1秒でFlexのステータスカードが返ってきます。
-   Hungerが低い状態（減衰はリアルタイムです）で **Play** をタップすると、例の拒否カードが顔を出します。
+   はずです。`line richmenu set-default` が効いている証拠です。
+2. **Feed / Play / Status** をタップしてみます。それぞれ約1秒でFlexのステータスカードが返ってきます。
+   Hungerが低い状態（減衰はリアルタイムです）で **Play** をタップすると、例の拒否カードが表示されます。
 3. **Shop** をタップしてMINI Appを開きます。カタログが読み込まれ、アイテムを購入できます
-   （`liff.iap.createPayment` が、実際のApp Store / Play Storeの購入UIを駆動します——第6章）。
+   （`liff.iap.createPayment` が、実際のApp Store / Play Storeの購入UIを駆動します。第6章を参照）。
 4. 購入が完了すると、`PurchaseReconciliationService` が次のポーリングtickでそれを拾い上げ
-   （`LINE_MINIAPP_POLL_SECONDS`、デフォルト30——ここは **即時ではありません**、push webhookが無い
+   （`LINE_MINIAPP_POLL_SECONDS`、デフォルト30秒。ここは **即時ではありません**。push webhookが無い
    ためです）、新しいアイテムを知らせるチャットメッセージが届きます。試しに **Golden Kibble** を
    買ってから **Feed** をタップすると、Hungerが満タンまで回復し、そのぶん消費されるのが分かります。
 
-なお、この間ずっとVS Codeのデバッガをアタッチしたままにしておけます——`WebhookEndpoints` や
+なお、この間ずっとVS Codeのデバッガをアタッチしたままにしておけます。`WebhookEndpoints` や
 `PurchaseReconciliationService` にブレークポイントを置いて、実際のLINEトラフィックが流れていく様子を
 じっくり観察できます。
 
@@ -84,14 +84,14 @@ user-secrets ではなく、環境変数 / `--channel-token` / `line config` プ
 テスト決済すら**IAP審査の承認**（数週間・日本限定・事業者向け）が前提で、しかもそれは開発用チャネルに
 登録したテスターでのみ動きます。さらに、ユーザーが実際に課金できるようになるには別途「認証審査」も必要
 です。それらが揃うまでは **Buy は無効**（`liff.isApiAvailable('iap')` が false）で、照合ポーリングは
-`403` をログに出します——これはバグではなく想定どおりの状態です。
+`403` をログに出します。これはバグではなく想定どおりの状態です。
 
-そこで、その先の**下流フロー**——付与 → チャット通知 → Feed での Golden Kibble 消費——だけは検証できる
+そこで、その先の**下流フロー**（付与 → チャット通知 → Feed での Golden Kibble 消費）だけは検証できる
 よう、アプリは購入完了の代役となる**開発時限定**のフックを用意しています。これは**環境が Development の
 ときだけ**マップされます。Production ではエンドポイントは `404` を返し、`config.devPurchaseEnabled` は
 `false` になるので、デプロイ後のアプリには一切含まれません。
 
-> **注意——この dev フックは無認可です。** 認証チェックなしで、任意の `userId` に在庫を付与し push を
+> **注意: この dev フックは無認可です。** 認証チェックなしで、任意の `userId` に在庫を付与し push を
 > 送れます。`localhost` なら無害ですが、上の起動手順は Development サーバを `devtunnel …
 > --allow-anonymous` で公開します。トンネルが開いている間は、URL を知っている第三者もこのエンドポイント
 > に到達できます（既知の userId への push スパム等）。トンネルは短時間に留め、URL を共有せず、テストが
@@ -111,9 +111,9 @@ group.MapGet("/config", (CompanionSettings settings) =>
 
 if (isDev)
 {
-    // Stand in for a completed IAP purchase: grant the item and send the same push
-    // PurchaseReconciliationService would on a purchaseComplete event, without touching LINE's IAP
-    // endpoints — so it works even when isApiAvailable('iap') is false. Mapped only in Development.
+    // 完了した IAP 購入の代役。アイテムを付与し、purchaseComplete イベント時に
+    // PurchaseReconciliationService が送るのと同じ push を送る。LINE の IAP エンドポイントには触れない
+    // ので、isApiAvailable('iap') が false でも動く。マップされるのは Development のときだけ。
     group.MapPost("/dev/complete-purchase", async (
         DevCompletePurchaseRequest req,
         [FromServices] MessagingClient? messaging,
@@ -205,19 +205,19 @@ curl -X POST http://localhost:5091/api/shop/dev/complete-purchase `
   `messaging: enabled` を報告しているかも見ておきます。
 - **`/webhook` で401。** これは `LINE_CHANNEL_SECRET` がチャネルのものと一致していないサインです。
 - **Feed/Play/Status が何もしない。** ログに "Failed to reply to a postback event" が出ていないか
-  確認します——たいていは、テストがもたついて期限切れになったreplyトークン（有効期間は約1分です）か、
+  確認します。たいていは、テストがもたついて期限切れになったreplyトークン（有効期間は約1分です）か、
   欠落した/無効なアクセストークンが原因です。
 - **Shopボタンが空白ページを開く / 反応しない。** `richmenu.json` の `YOUR_LIFF_ID` を置換しないまま
   メニューを作成したか、`LINE_MINIAPP_LIFF_ID` が間違っているか、MINI AppチャネルのエンドポイントURLが
-  このアプリの `/shop/` パスを向いていないかのいずれかです——いずれもコードではなく、コンソール/設定の
-  問題ですね。（URLを直したら `line richmenu create`/`image`/`set-default` をやり直します。）
+  このアプリの `/shop/` パスを向いていないかのいずれかです。いずれもコードではなく、コンソール/設定の
+  問題です。（URLを直したら `line richmenu create`/`image`/`set-default` をやり直します。）
 - **購入は完了するのにチャットメッセージが来ない。** 最大で `LINE_MINIAPP_POLL_SECONDS` ほどかかるのが
-  想定どおりの挙動です——即時pushは無いのでした。それでも一向に届かないようなら、
+  想定どおりの挙動です。即時pushは無いのでした。それでも一向に届かないようなら、
   `PurchaseReconciliationService` のwarningを確認してください（無効/期限切れのトークンが、たいていの
   原因です）。
 - **サービスメッセージが一度も送られず、常にPushへフォールバックする。** これは `LINE_MINIAPP_TEMPLATE_NAME`
   が *承認済み* テンプレートであること、かつユーザーが有効なnotifierトークンを取れるほど最近ショップを
-  開いていること——この両方が揃わない限り、むしろ想定どおりの挙動です（第8章を参照）。Pushフォール
+  開いていること。この両方が揃わない限り、むしろ想定どおりの挙動です（第8章を参照）。Pushフォール
   バックは意図されたデフォルトの安全な経路であって、バグではありません。
 
 ## 確認済みのこと・実チャネルが必要なこと
@@ -226,18 +226,18 @@ curl -X POST http://localhost:5091/api/shop/dev/complete-purchase `
 `PetGrowthEngine` へのpostbackディスパッチが実際のFlex Messageを生成すること、すべてのショップ
 エンドポイント（config/catalog/inventory
 に reserve のバリデーション分岐まで）、そして照合ループが実際に `api.line.me` に到達し、クラッシュせず
-にレスポンスを処理すること——ここまでは手元で見届けられます。残るもの——チャット返信が実際に届くこと、
-リッチメニューがレンダリングされること、完了したIAP購入が grant→notify の全経路を駆動すること——には、
-上記の実チャネル設定がどうしても必要になります。だからこそこの章は、「信じてくれ、動くから」を前の各章
-に畳み込んでしまうのではなく、あえて別立てで存在しているのです。
+にレスポンスを処理すること。ここまでは手元で見届けられます。残るのは、チャット返信が実際に届くこと、
+リッチメニューがレンダリングされること、完了したIAP購入が grant→notify の全経路を駆動すること。これらには
+上記の実チャネル設定がどうしても必要です。だからこそこの章は、「信じてくれ、動くから」を前の各章
+に畳み込むのではなく、あえて別立てで存在しています。
 
 ## レビューゲートについての注記
 
 最後に一つ。このアプリを完成とみなす前に、3役のレビューゲート（コード / セキュリティ / テスト・アーキ）
 を通しています。いずれも **CONCERNS（非ブロッキング）** を返し、対応可能な指摘はすべて修正済みです。
-そしてそれらの修正は、別立ての付録にまとめたのではなく——それぞれが関係する章の中に畳み込んであります。
+そしてそれらの修正は、別立ての付録にまとめたのではなく、それぞれが関係する章の中に畳み込んであります。
 LINE自身の `ev.UserId` を信頼する照合（第7章）、引き締めたnotifyフォールバックとその `Error` レベルの
 二重失敗ログ（第8章）、インベントリの読み取りロックと、アイテムに実際の効果を持たせるGolden Kibbleの
 消費（第6章および第3〜4章）、そして追加した `PetGrowthEngine` のテストケース（第3章）といった具合です。
-つまりここまでで組み上げたコードは *そのまま* レビュー済みの最終形であり——あとから学び直さなければ
+つまりここまでで組み上げたコードは *そのまま* レビュー済みの最終形であり、あとから学び直さなければ
 ならないものは、何一つ残っていません。

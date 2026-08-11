@@ -2,11 +2,11 @@
 
 # 第3章 — Pet状態と成長エンジン
 
-**このステップで作るもの:** ペットのシミュレーション本体——`PetState`・`PetGrowthEngine`・
-それを保持する `IPetStore`——であり、**いかなるLINE APIにも依存しません**。そして実は、ここは
-このアプリで唯一、意図的にユニットテストを書く価値がある部分でもあります。というのも、減衰クランプ・
-レベル閾値・空腹ゲートといった本物のエッジケースを持つ純粋な分岐ロジックだからです——単体で検証する
-コストは低く、それでいて重要なミスをしっかり捕まえられる、割のいい場所なのです。
+**このステップで作るもの:** ペットのシミュレーション本体（`PetState`・`PetGrowthEngine`・
+それを保持する `IPetStore`）で、**いかなるLINE APIにも依存しません**。ここはこのアプリで唯一、
+意図的にユニットテストを書く価値がある部分です。減衰クランプ・レベル閾値・空腹ゲートといった本物の
+エッジケースを持つ、純粋な分岐ロジックだからです。単体で検証するコストは低く、それでいて重要な
+ミスをしっかり捕まえられます。
 
 ## エンジン
 
@@ -44,8 +44,8 @@ public static class PetGrowthEngine
         return decayed with { Hunger = Math.Min(100, decayed.Hunger + FeedHungerGain), Xp = decayed.Xp + XpPerAction };
     }
 
-    // The shop's "Golden Kibble" (Chapter 6): a full instant refill instead of the usual partial
-    // gain. Consumed on use, so it only ever applies once.
+    // ショップの "Golden Kibble"（第6章）。通常の部分回復ではなく、一度で満タンまで回復する。
+    // 使うと消費されるので、効くのは一度きり。
     public static PetState FeedRare(PetState state, DateTimeOffset now)
     {
         var decayed = ApplyDecay(state, now);
@@ -56,7 +56,7 @@ public static class PetGrowthEngine
     {
         var decayed = ApplyDecay(state, now);
         if (decayed.Hunger <= PlayHungerThreshold)
-            return new PlayResult(decayed, Success: false); // too hungry to play
+            return new PlayResult(decayed, Success: false); // 空腹すぎて遊べない
 
         var played = decayed with { Happiness = Math.Min(100, decayed.Happiness + PlayHappinessGain), Xp = decayed.Xp + XpPerAction };
         return new PlayResult(played, Success: true);
@@ -105,7 +105,7 @@ public static class PetGrowthEngine
 
 ループの形を決めるルールが2つ:
 
-- 空腹が過ぎるペットは、餌をやるまで **遊びを拒否** します——その試みは何も起きないだけで、「死亡」や
+- 空腹が過ぎるペットは、餌をやるまで **遊びを拒否** します。その試みは何も起きないだけで、「死亡」や
   恒久的な喪失はありません。
 - ショップの **レア餌はHungerを一度で満タンまで回復** させます（通常の餌やりのわずかな回復とは違います）。
 
@@ -124,8 +124,8 @@ public static class PetGrowthEngine
 ## インターフェース越しのストア
 
 今日のところ唯一の実装がインメモリのdictionaryだとしても、各ストアは `Persistence/` 配下の
-インターフェース越しに公開しておきます——将来データベースを、呼び出し元に一切触れることなく差し込める
-ようにするための継ぎ目（seam）です。まずは `src/LineCompanionBot/Persistence/IPetStore.cs` を作成します:
+インターフェース越しに公開しておきます。将来データベースを、呼び出し元に一切触れることなく差し込む
+ための継ぎ目（seam）です。まずは `src/LineCompanionBot/Persistence/IPetStore.cs` を作成します:
 
 ```csharp
 using LineCompanionBot.Services;
@@ -140,10 +140,10 @@ public interface IPetStore
 ```
 
 各メソッドは、インメモリ実装が実際には一度もawaitしないにもかかわらず、あえて**async形**
-（`CancellationToken` を伴う `Task`/`Task<T>`）にしてあります。理由はこうです——インターフェースと
-いうものは、後から `CancellationToken` を足したり、同期を非同期に変えたりを、すべての呼び出し箇所に
-手を入れずに済ませることができません。ならば最初から実I/Oを想定した形にしておけば、いざEF Core /
-Dapper 実装を差し込むときも、呼び出し元には一切手を入れずに済むわけです。
+（`CancellationToken` を伴う `Task`/`Task<T>`）にしてあります。インターフェースは、後から
+`CancellationToken` を足したり同期を非同期に変えたりを、すべての呼び出し箇所に手を入れずには
+済ませられません。最初から実I/Oを想定した形にしておけば、いざEF Core / Dapper 実装を差し込むときも、
+呼び出し元に一切手を入れずに済みます。
 
 `InMemoryPetStore`（`Persistence/InMemory/InMemoryPetStore.cs`）の実体は、その2メソッドを
 `Task.FromResult` でラップしただけの `ConcurrentDictionary<string, PetState>` です。まず
@@ -155,8 +155,8 @@ using LineCompanionBot.Services;
 
 namespace LineCompanionBot.Persistence.InMemory;
 
-// In-memory only, no persistence — the app is a demo, not a game server. State resets on restart.
-// Swap the DI registration for a real IPetStore implementation to persist across restarts.
+// インメモリのみで永続化なし。これはゲームサーバではなくデモなので、再起動で状態はリセットされる。
+// 再起動をまたいで永続化するには、DI 登録を実際の IPetStore 実装に差し替える。
 public sealed class InMemoryPetStore : IPetStore
 {
     private const string DefaultName = "Pico";
@@ -176,7 +176,7 @@ public sealed class InMemoryPetStore : IPetStore
 }
 ```
 
-登録もまた、たった1つの継ぎ目を通して行います——`Persistence/InMemory/PersistenceServiceCollectionExtensions.cs`
+登録もまた、たった1つの継ぎ目を通して行います。`Persistence/InMemory/PersistenceServiceCollectionExtensions.cs`
 を作成します:
 
 ```csharp
@@ -189,7 +189,7 @@ public static class PersistenceServiceCollectionExtensions
     public static IServiceCollection AddInMemoryPersistence(this IServiceCollection services)
     {
         services.AddSingleton<IPetStore, InMemoryPetStore>();
-        // Chapter 6 adds IInventoryStore, IOrderStore, and INotifierTokenStore here.
+        // 第6章で、ここに IInventoryStore・IOrderStore・INotifierTokenStore を追加する。
         return services;
     }
 }
@@ -198,11 +198,11 @@ public static class PersistenceServiceCollectionExtensions
 あとは `Program.cs` で `builder.Services.AddInMemoryPersistence();` を呼び出すだけです（これは
 `LineCompanionBot.Persistence.InMemory` にある拡張メソッドなので、`Program.cs` の冒頭に
 `using LineCompanionBot.Persistence.InMemory;` を追加してください）。本番デプロイに
-移すときも、差し替えるのはこの1行——たとえば `AddSqlPersistence(connectionString)` に置き換えるだけで
-済みます。というのも、すべての消費者は `I*Store` インターフェースにだけ依存していて、具象型には一切
-触れていないからです。（ここでSingletonを選んでいるのは、dictionaryが単一のリクエストより長生きしなければ
-ならないため。このライフタイムの選択が、バックグラウンドサービスからのストア解決の仕方をどう形作って
-いくかは、[第7章](07-reconciliation.md)で改めて説明します。）
+移すときも、差し替えるのはこの1行、たとえば `AddSqlPersistence(connectionString)` に置き換えるだけで
+済みます。すべての消費者は `I*Store` インターフェースにだけ依存し、具象型には一切触れていないから
+です。（ここでSingletonを選んでいるのは、dictionaryが単一のリクエストより長生きしなければならない
+ためです。このライフタイムの選択が、バックグラウンドサービスからのストア解決の仕方をどう左右するかは、
+[第7章](07-reconciliation.md)で改めて説明します。）
 
 ## 試してみる
 
@@ -251,7 +251,7 @@ public class PetGrowthEngineTests
 
         var fed = PetGrowthEngine.Feed(state, now);
 
-        Assert.Equal(100, fed.Hunger); // 90 + 30 clamped to 100
+        Assert.Equal(100, fed.Hunger); // 90 + 30 を 100 に制限
         Assert.Equal(PetGrowthEngine.XpPerAction, fed.Xp);
     }
 
@@ -290,7 +290,7 @@ public class PetGrowthEngineTests
         var result = PetGrowthEngine.Play(state, now);
 
         Assert.True(result.Success);
-        Assert.Equal(100, result.State.Happiness); // 90 + 25 clamped to 100
+        Assert.Equal(100, result.State.Happiness); // 90 + 25 を 100 に制限
     }
 
     [Fact]
@@ -334,8 +334,8 @@ public class PetGrowthEngineTests
 }
 ```
 
-**test** タスク（または `dotnet test`）を実行してみてください——すべてグリーンになるはずです。`Play` の
-100クランプと `FeedRare` のケースは、実は後から追加したものです。チュートリアルが、テストには実際には
-存在しないカバレッジを謳っている——そのことにレビューが気づいたのがきっかけでした。そして境界の行
-（`Hunger 20` は拒否、`21` は成功）ですが、空腹ゲートというのはまさにoff-by-oneを起こしやすい箇所なの
-です。さて、ここまではまだLINEとは一言も通信していません——それは次の章の仕事です。
+**test** タスク（または `dotnet test`）を実行してみてください。すべてグリーンになるはずです。`Play` の
+100クランプと `FeedRare` のケースは、実は後から追加したものです。テストには実際には存在しない
+カバレッジをチュートリアルが謳っている、とレビューが気づいたのがきっかけでした。境界の行
+（`Hunger 20` は拒否、`21` は成功）を確かめているのは、空腹ゲートがまさにoff-by-oneを起こしやすい
+箇所だからです。ここまでは、まだLINEとは一度も通信していません。それは次章の仕事です。

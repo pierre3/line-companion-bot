@@ -1,19 +1,19 @@
 [← はじめに](00-getting-started.md) | [索引](README.md) | [第2章 →](02-webhook.md)
 
-# 第1章 — プロジェクトの骨組みとDI配線
+# 第1章 — プロジェクトの骨組みとDIの組み立て
 
-**作るもの:** 起動して自分の設定状態を報告するだけ、それ以外はまだ何もしない——可能な限り最小の
-アプリです。以降のすべての章は、この形に機能を差し込んでいくことになります。
+**作るもの:** 起動して自分の設定状態を報告するだけの、可能な限り最小のアプリです。それ以外はまだ
+何もしません。以降のすべての章は、この形に機能を差し込んでいきます。
 
 **ここで確立する設計ルール:** アプリは、何も設定されていなくても**必ず起動する**。各LINE機能は
 必要な設定が揃っているかどうかでゲートされ、起動を拒否する代わりに、ヘルスエンドポイントが「何が
-足りていないか」を教えてくれます。おかげで、どの途中段階の章を実行しても、クラッシュではなく有用な
-答えが返ってくる、というわけです。
+足りていないか」を教えます。これにより、どの途中段階の章を実行しても、クラッシュせずに有用な答えが
+返ってきます。
 
 ## 設定: `IConfiguration` から一度だけバインドする
 
-`CompanionSettings` は、アプリが起動時に一度だけ読む設定です。バインドには.NET標準の仕組み——
-`IConfiguration.Get<T>()`——を使います。`src/LineCompanionBot/CompanionSettings.cs` を作成しましょう:
+`CompanionSettings` は、アプリが起動時に一度だけ読む設定です。バインドには.NET標準の
+`IConfiguration.Get<T>()` を使います。`src/LineCompanionBot/CompanionSettings.cs` を作成しましょう:
 
 ```csharp
 using Microsoft.Extensions.Configuration;
@@ -40,7 +40,7 @@ public sealed class CompanionSettings
     public int PollSeconds
     {
         get => _pollSeconds;
-        set => _pollSeconds = value > 0 ? value : 30; // non-positive → fall back to 30
+        set => _pollSeconds = value > 0 ? value : 30; // 非正なら 30 に戻す
     }
 
     public bool HasWebhook => !string.IsNullOrWhiteSpace(ChannelSecret);
@@ -54,18 +54,18 @@ public sealed class CompanionSettings
 - **`[ConfigurationKeyName("LINE_...")]` によって、すべてのキーがフラットな環境変数風の名前のまま
   になる。** バインダーはC#のプロパティ名に関わらず `LINE_CHANNEL_SECRET` をそのまま
   `ChannelSecret` にマップしてくれるので、設定は名前が示す通り、素の環境変数 / user-secretsから
-  読まれます——わざわざネストした `appsettings.json` のセクションをでっち上げる必要はありません。
-- **`PollSeconds` はsetter内で非正の値を30へクランプする。** というのも、
-  [第7章](07-reconciliation.md)はこの値から `PeriodicTimer` を、自身のポーリング失敗用try/catchの
-  *外側*で構築するからです。`PeriodicTimer` は非正の間隔を渡されると例外を投げ——それはホスト全体を
-  巻き込んで落としてしまいます。setterでクランプしておけば、`0`/負のタイプミスが致命傷になりません。
-  （なお、*数値でない*値のほうはバインド時にやはり例外を投げます——これは意図的です。マスクすべき
-  ではなく、大きな音で表面化させるべき操作ミスだからです。）
+  読まれます。ネストした `appsettings.json` のセクションをわざわざ用意する必要はありません。
+- **`PollSeconds` はsetter内で非正の値を30へクランプする。**
+  [第7章](07-reconciliation.md)がこの値から `PeriodicTimer` を、自身のポーリング失敗用try/catchの
+  *外側*で構築するからです。`PeriodicTimer` は非正の間隔を渡されると例外を投げ、ホスト全体を巻き込んで
+  落としてしまいます。setterでクランプしておけば、`0` や負のタイプミスが致命傷になりません。
+  （なお、*数値でない*値はバインド時にやはり例外を投げますが、これは意図的です。隠すのではなく、
+  はっきり表面化させるべき操作ミスだからです。）
 
-`Get<T>()` は、より本格的な `IOptions<T>` のOptionsパターンよりも、あえてこちらを選んでいます:
+ここでは、より本格的な `IOptions<T>` のOptionsパターンではなく `Get<T>()` を選んでいます。
 このアプリは設定のリロードも起動時バリデーションも必要としません（後者はそもそも「必ず起動する」
-ルールと衝突します）。誰も消費しない仕組みを増やさずに済む、より軽量で、同じく標準的な `Get<T>()`
-のほうが、ここには収まりよく合うのです。
+ルールと衝突します）。誰も使わない仕組みを増やさずに済む、軽量で標準的な `Get<T>()` が、ここには
+合っています。
 
 ## Program.cs: 設定を組み立て、DIをゲートし、ヘルスを公開する
 
@@ -84,8 +84,8 @@ static IConfiguration BuildCompanionConfiguration(string environmentName)
         .AddJsonFile("appsettings.json", optional: true)
         .AddJsonFile($"appsettings.{environmentName}.json", optional: true);
 
-    // User secrets are the framework-recommended local store for the LINE_* secrets in development.
-    // Placed before the env-var provider so an explicit env var still wins (standard precedence).
+    // 開発時、LINE_* シークレットの保管にはフレームワーク推奨のユーザーシークレットを使う。
+    // 環境変数プロバイダより前に置き、明示的な環境変数が優先されるようにする（標準の優先順位）。
     if (string.Equals(environmentName, "Development", StringComparison.Ordinal))
         configurationBuilder.AddUserSecrets(typeof(Program).Assembly, optional: true);
 
@@ -100,19 +100,19 @@ builder.Services.AddSingleton(settings);
 
 builder.Services.AddProblemDetails();
 
-// Each Add* is gated so the app always starts; the health endpoint reports what's missing.
+// 各 Add* はゲートしてあり、アプリは必ず起動する。足りない設定はヘルスエンドポイントが報告する。
 if (settings.HasWebhook)
     builder.Services.AddLineWebhook(o => o.ChannelSecret = settings.ChannelSecret!);
 
 if (settings.HasMessaging)
     builder.Services.AddLineMessaging(o => o.ChannelAccessToken = settings.ChannelAccessToken!);
 
-// MiniAppClient takes tokens per call rather than via DI options, so it needs no config to gate on.
+// MiniAppClient はトークンを DI オプションではなく呼び出しごとに受け取るので、ゲートする設定は不要。
 builder.Services.AddLineMiniApp();
 
 var app = builder.Build();
 
-app.UseExceptionHandler(); // ProblemDetails-shaped 500s for unhandled exceptions
+app.UseExceptionHandler(); // 未処理例外を ProblemDetails 形式の 500 にする
 
 app.MapGet("/", (CompanionSettings companionSettings) => Results.Ok(new
 {
@@ -125,31 +125,29 @@ app.MapGet("/", (CompanionSettings companionSettings) => Results.Ok(new
 app.Run();
 ```
 
-ここには注目してほしい点が3つあります:
+ここには注目してほしい点が4つあります:
 
 - **`BuildCompanionConfiguration` は `builder.Configuration` ではなく専用の設定ソースである。**
-  あえて `AddCommandLine()`（`WebApplication.CreateBuilder` 自身の設定には含まれます）を省いています
-  ——コマンドラインに紛れ込んだ `--LINE_CHANNEL_SECRET=` が静かに勝ってしまうのは、セキュリティに
-  敏感な値にとってはリグレッションだからです。加えてDevelopmentでは
-  user-secretsを追加しており（「はじめに」より）、これが後で「トークンをuser-secretsに入れる」が
-  効いてくる理由です。
-- **`?? new CompanionSettings()` は防御ではなく必須である。** というのも、設定が完全に空のとき、
-  `Get<T>()` はデフォルト値で埋めたインスタンスではなく `null` を返すからです。このフォールバックが
-  無いと、未設定のままの初回実行は、クリーンに起動する代わりに `NullReferenceException` で転んで
-  しまいます。
+  あえて `AddCommandLine()`（`WebApplication.CreateBuilder` 自身の設定には含まれます）を省いています。
+  コマンドラインに紛れ込んだ `--LINE_CHANNEL_SECRET=` が黙って優先されるのは、セキュリティに敏感な値に
+  とってはリグレッションだからです。加えてDevelopmentではuser-secretsを追加しており（「はじめに」
+  参照）、後の「トークンをuser-secretsに入れる」が効いてくるのはこのためです。
+- **`?? new CompanionSettings()` は防御ではなく必須である。** 設定が完全に空のとき、`Get<T>()` は
+  デフォルト値で埋めたインスタンスではなく `null` を返すからです。このフォールバックが無いと、未設定の
+  ままの初回実行は、正常に起動する代わりに `NullReferenceException` で落ちてしまいます。
 - **`AddProblemDetails()` + `UseExceptionHandler()`** は、未処理例外を素の500ではなく
   `application/problem+json`（`traceId` 付き）に整形してくれる.NET標準パターンです。後の章の
   `Results.Problem(...)` 呼び出しは*既知の*エラーについてすでにこの形状を返しますが、こちらは
   予期しない例外側のギャップを埋めてくれます。
 - **`AddLineMiniApp()` は必須設定を取らない。** webhook/messagingの登録とは違い、`MiniAppClient` の
   メソッドはすべてチャネル/ユーザーアクセストークンを呼び出し毎の引数として受け取ります。だから
-  ゲートすべき対象がなく——常に登録されるわけです。
+  ゲートすべき対象がなく、常に登録されます。
 
 ## appsettings.json
 
 `dotnet new web` は、標準の `Logging` セクションを持つ `appsettings.json` /
 `appsettings.Development.json` のペアを、すでに追加してくれています。これはそのまま残しておいて
-ください——`LINE_*` 設定は実運用では環境変数 / user-secretsから来ますが、標準ファイルがあると
+ください。`LINE_*` 設定は実運用では環境変数 / user-secretsから来ますが、標準ファイルがあると
 環境変数無しでログレベルを調整するのに便利ですし、`BuildCompanionConfiguration` もそれらをベース
 レイヤーとして読み込みます。
 
@@ -171,12 +169,12 @@ Invoke-RestMethod http://localhost:5091/
 }
 ```
 
-設定がゼロの状態でも、アプリは次に何を設定すればよいかを正確に教えてくれます——これが、以降の
-すべての機能が差し込まれていくパターンになります。
+設定がゼロの状態でも、アプリは次に何を設定すればよいかを正確に教えてくれます。これが、以降の
+すべての機能が差し込まれていくパターンです。
 
 ## バインディングのテスト
 
-このバインディングには、押さえておきたい挙動がいくつかあります——`[ConfigurationKeyName]` による
+このバインディングには、押さえておきたい挙動がいくつかあります。`[ConfigurationKeyName]` による
 マッピング、`PollSeconds` のクランプ、そしてパースできない値の扱いです。テストファイル全体
 `tests/LineCompanionBot.Tests/CompanionSettingsBindingTests.cs` はこうです:
 
@@ -188,8 +186,8 @@ namespace LineCompanionBot.Tests;
 
 public class CompanionSettingsBindingTests
 {
-    // Mirrors Program.cs exactly: Get<T>() returns null (not a defaulted instance) when the
-    // configuration is completely empty, so the "?? new()" fallback is load-bearing, not defensive.
+    // Program.cs と同じ挙動。設定が完全に空のとき Get<T>() は（既定値で埋めたインスタンスではなく）
+    // null を返すので、"?? new()" のフォールバックは防御ではなく必須。
     private static CompanionSettings Bind(Dictionary<string, string?> values)
         => new ConfigurationBuilder().AddInMemoryCollection(values).Build().Get<CompanionSettings>() ?? new CompanionSettings();
 
@@ -261,10 +259,10 @@ public class CompanionSettingsBindingTests
   文字列プロパティは `null` のまま、`PollSeconds` は既定の30、すべての `Has*` フラグは `false`
   （「未設定でも必ず起動する」の土台）。
 - **`Get_WithNonPositivePollSeconds_FallsBackTo30`** — `0` や負の間隔は30にフォールバックし、setterの
-  クランプと一致すること——タイポで[第7章](07-reconciliation.md)の `PeriodicTimer` に不正な間隔を
-  渡してしまわないためです。
+  クランプと一致すること。タイポで[第7章](07-reconciliation.md)の `PeriodicTimer` に不正な間隔を
+  渡さないためです。
 - **`Get_WithNonNumericPollSeconds_Throws`** — 数値でない値はバインド時に例外を投げ、黙って無視され
-  ないこと——オペレータのタイポを大きな声で知らせます。
+  ないこと。オペレータのタイポをはっきり知らせます。
 
 実行はTestタスク（*Terminal → Run Task → test*、またはテストエクスプローラー）か、ターミナルから:
 
