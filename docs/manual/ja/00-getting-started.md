@@ -131,19 +131,13 @@ dotnet add tests/LineCompanionBot.Tests reference src/LineCompanionBot
 
 ## LINEパッケージを追加する
 
-ここで `Line.OpenApi.*` のうち3つを、NuGetの**PackageReference**として追加します。実際の利用者が
-使うのとまったく同じ形です（このリポジトリは意図的に、ライブラリ本体のソースツリーから独立させて
-います）:
+今回は `Line.OpenApi.*` のうち、下記の3つを使います:
 
 ```powershell
 dotnet add src/LineCompanionBot package Line.OpenApi.Messaging --version 0.2.0-preview
 dotnet add src/LineCompanionBot package Line.OpenApi.Messaging.Webhook --version 0.2.0-preview
 dotnet add src/LineCompanionBot package Line.OpenApi.MiniApp --version 0.2.0-preview
 ```
-
-`Line.OpenApi.Liff` はあえて参照しません。このアプリは一度も呼ばず、呼ばない依存はノイズになるだけ
-だからです。役割分担は次のとおりです。`Messaging` がreply/push/リッチメニュー、`Messaging.Webhook`
-が署名検証とペイロード解析、`MiniApp` がショップのreserve/notifier/IAPポーリングを担当します。
 
 ## VS Codeで開いて実行・デバッグを設定する
 
