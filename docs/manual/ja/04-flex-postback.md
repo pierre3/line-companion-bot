@@ -19,23 +19,40 @@ using Line.OpenApi.Messaging.Generated.Api.Models;
 
 namespace LineCompanionBot.Services;
 
+// feed/play で回復した量。3つのアクションのカードが同じ見た目にならないよう、ステータスカードに
+// 表示する。status（回復なし）のときは null。
+public sealed record CareFeedback(int HungerGain, int HappinessGain);
+
 public static class PetFlexMessageFactory
 {
-    public static FlexMessage BuildStatus(PetState state)
+    public static FlexMessage BuildStatus(PetState state, int rareFoodCount, CareFeedback? feedback = null)
     {
         var level = PetGrowthEngine.Level(state);
         var stage = PetGrowthEngine.Stage(state);
+        var xpToNext = PetGrowthEngine.XpPerLevel - state.Xp % PetGrowthEngine.XpPerLevel;
+
+        var contents = new List<FlexComponent>();
+
+        // 直前のアクションで回復した量を、カード上部中央に大きく目立つバナーとして出す。これで
+        // feed/play/status が別々の見た目になる。バーの横に添えると、狭い画面で見切れてしまうため。
+        var banner = GainBanner(feedback);
+        if (banner is not null)
+            contents.Add(banner);
+
+        contents.Add(new FlexText { Type = "text", Text = $"{StageEmoji(stage)} Lv.{level} ({stage})", Weight = FlexText_weight.Bold, Size = "lg", Margin = banner is null ? null : "md" });
+        contents.Add(new FlexText { Type = "text", Text = $"XP {state.Xp} · {xpToNext} to next Lv", Size = "sm", Margin = "md" }); // ·
+        contents.Add(new FlexText { Type = "text", Text = $"Hunger {Bar(state.Hunger)} {(int)state.Hunger}%", Size = "sm", Margin = "md" });
+        contents.Add(new FlexText { Type = "text", Text = $"Happy  {Bar(state.Happiness)} {(int)state.Happiness}%", Size = "sm" });
+
+        // レア餌は、実際に所持しているときだけ表示する（0 のときは行を出さず "x0" の雑音も避ける）。
+        if (rareFoodCount > 0)
+            contents.Add(new FlexText { Type = "text", Text = $"\U0001F356 Golden Kibble ×{rareFoodCount}", Size = "sm", Margin = "md" }); // 🍖 ×
 
         var body = new FlexBox
         {
             Type = "box",
             Layout = FlexBox_layout.Vertical,
-            Contents = new List<FlexComponent>
-            {
-                new FlexText { Type = "text", Text = $"{StageEmoji(stage)} Lv.{level} ({stage})", Weight = FlexText_weight.Bold, Size = "lg" },
-                new FlexText { Type = "text", Text = $"Hunger {Bar(state.Hunger)} {(int)state.Hunger}%", Size = "sm", Margin = "md" },
-                new FlexText { Type = "text", Text = $"Happy  {Bar(state.Happiness)} {(int)state.Happiness}%", Size = "sm" },
-            },
+            Contents = contents,
         };
 
         var header = new FlexBox
@@ -45,10 +62,14 @@ public static class PetFlexMessageFactory
             Contents = new List<FlexComponent> { new FlexText { Type = "text", Text = state.Name, Weight = FlexText_weight.Bold, Size = "xl" } },
         };
 
+        var altText = $"{state.Name}: Lv.{level}, Hunger {(int)state.Hunger}%, Happy {(int)state.Happiness}%";
+        if (rareFoodCount > 0)
+            altText += $", Golden Kibble x{rareFoodCount}";
+
         return new FlexMessage
         {
             Type = "flex",
-            AltText = $"{state.Name}: Lv.{level}, Hunger {(int)state.Hunger}%, Happy {(int)state.Happiness}%",
+            AltText = altText,
             Contents = new FlexBubble { Type = "bubble", Header = header, Body = body },
         };
     }
@@ -74,6 +95,16 @@ public static class PetFlexMessageFactory
         };
     }
 
+    // 直前のアクションで回復したステータスを表す、中央寄せの大きな "+N" 行。status（回復なし）では null。
+    private static FlexText? GainBanner(CareFeedback? feedback)
+    {
+        if (feedback is { HungerGain: > 0 } fed)
+            return new FlexText { Type = "text", Text = $"\U0001F354 +{fed.HungerGain}", Weight = FlexText_weight.Bold, Size = "xxl", Align = FlexText_align.Center, Color = "#F0932B" }; // 🍔
+        if (feedback is { HappinessGain: > 0 } played)
+            return new FlexText { Type = "text", Text = $"❤ +{played.HappinessGain}", Weight = FlexText_weight.Bold, Size = "xxl", Align = FlexText_align.Center, Color = "#EB4D4B" }; // ❤
+        return null;
+    }
+
     private static string StageEmoji(PetStage stage) => stage switch
     {
         PetStage.Hatchling => "\U0001F95A", // たまご
@@ -89,6 +120,17 @@ public static class PetFlexMessageFactory
     }
 }
 ```
+
+`BuildStatus` が描くカードは、アクションによって中身が変わります。共通で **Lv./ステージ**、
+**現在のXPと次のレベルまでの残り**、Hunger/Happy のバーを表示し、これに加えて次を出し分けます:
+
+- **feed / play 時** は、回復量をカード上部中央に大きなバナー（`🍔 +N` / `❤ +N`）として表示します。
+  `CareFeedback` で渡し、`status`（回復なし）のときは出しません。ゲージの横に添えると狭い画面で
+  見切れるため、独立した中央寄せの行にしています。
+- **レア餌（Golden Kibble）を所持しているとき** は、その個数を表示します。所持数は `rareFoodCount` で
+  受け取りますが、ショップは[第6章](06-shop.md)で登場するため、この章では常に `0`（＝行なし）を渡します。
+
+これで、どのアクションを押したのかがカードから見分けられます。
 
 `BuildPlayRefused` は、その失敗分岐と対になるカードで、`PetGrowthEngine.Play` が `Success: false` を
 返したときに表示されます。このカードの背後には、2つの設計判断が隠れています:
@@ -133,21 +175,28 @@ foreach (var ev in callback.Events ?? new())
     switch (postback.Postback?.Data)
     {
         case "action=feed":
+            var decayedBeforeFeed = PetGrowthEngine.ApplyDecay(pet, now);
             pet = PetGrowthEngine.Feed(pet, now);   // 第6章で、この分岐を Golden Kibble を消費するよう拡張する
             await petStore.SaveAsync(pet, ct);
-            reply = PetFlexMessageFactory.BuildStatus(pet);
+            // ショップはまだ無いので rareFoodCount は 0。第6章で実際の所持数につなぐ。
+            reply = PetFlexMessageFactory.BuildStatus(
+                pet, rareFoodCount: 0,
+                new CareFeedback((int)Math.Round(pet.Hunger - decayedBeforeFeed.Hunger), 0));
             break;
         case "action=play":
+            var decayedBeforePlay = PetGrowthEngine.ApplyDecay(pet, now);
             var played = PetGrowthEngine.Play(pet, now);
             await petStore.SaveAsync(played.State, ct);
             reply = played.Success
-                ? PetFlexMessageFactory.BuildStatus(played.State)
+                ? PetFlexMessageFactory.BuildStatus(
+                    played.State, rareFoodCount: 0,
+                    new CareFeedback(0, (int)Math.Round(played.State.Happiness - decayedBeforePlay.Happiness)))
                 : PetFlexMessageFactory.BuildPlayRefused(played.State);
             break;
         case "action=status":
             pet = PetGrowthEngine.Status(pet, now);
             await petStore.SaveAsync(pet, ct);
-            reply = PetFlexMessageFactory.BuildStatus(pet);
+            reply = PetFlexMessageFactory.BuildStatus(pet, rareFoodCount: 0);
             break;
         default:
             continue; // 認識できない postback データ

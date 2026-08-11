@@ -380,17 +380,38 @@ case "action=feed":
     // CancellationToken.None on both calls: TryConsumeAsync removes the item the instant it returns
     // true, so the matching SaveAsync must not be skippable by a cancellation landing between them —
     // otherwise the item is spent with nothing granted.
+    var decayedBeforeFeed = PetGrowthEngine.ApplyDecay(pet, now);
     pet = await inventory.TryConsumeAsync(userId, "rare-food", CancellationToken.None)
         ? PetGrowthEngine.FeedRare(pet, now)
         : PetGrowthEngine.Feed(pet, now);
     await petStore.SaveAsync(pet, CancellationToken.None);
-    reply = PetFlexMessageFactory.BuildStatus(pet);
+    // Show the actual hunger restored (post-clamp), not the nominal gain.
+    reply = PetFlexMessageFactory.BuildStatus(
+        pet,
+        await RareFoodCountAsync(inventory, userId, ct),
+        new CareFeedback((int)Math.Round(pet.Hunger - decayedBeforeFeed.Hunger), 0));
     break;
 ```
 
 This is the payoff for `FeedRare` from Chapter 3 — a reviewer caught that the catalog *described*
 Golden Kibble as refilling Hunger but nothing consumed it, so a reader would buy it and see no
 effect. Now feeding while holding one spends it for a full refill.
+
+The card also gains a **rare-food count**. Chapter 4 passed `rareFoodCount: 0` because there was no
+inventory yet. Add a small helper to `WebhookEndpoints` (next to `MapWebhookEndpoint`), and switch the
+`rareFoodCount: 0` in the `play`/`status` calls to `await RareFoodCountAsync(inventory, userId, ct)`:
+
+```csharp
+// Count of the consumable "rare-food" (Golden Kibble) the user currently owns, shown on the card.
+private static async Task<int> RareFoodCountAsync(IInventoryStore inventory, string userId, CancellationToken ct)
+{
+    var items = await inventory.GetAsync(userId, ct);
+    return items.Count(i => i.ProductId == "rare-food");
+}
+```
+
+Now, whenever the user holds Golden Kibble, its count (`🍖 Golden Kibble ×N`) shows on every action's
+card.
 
 ## Try it — exercise the backend contract
 

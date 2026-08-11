@@ -66,23 +66,32 @@ public static class WebhookEndpoints
                         // mutates state (removes the item) the instant it returns true, so the matching
                         // SaveAsync of the pet's feed effect must not be skippable by a cancellation
                         // landing between the two calls — otherwise the item is spent with nothing granted.
+                        var decayedBeforeFeed = PetGrowthEngine.ApplyDecay(pet, now);
                         pet = await inventory.TryConsumeAsync(userId, "rare-food", CancellationToken.None)
                             ? PetGrowthEngine.FeedRare(pet, now)
                             : PetGrowthEngine.Feed(pet, now);
                         await petStore.SaveAsync(pet, CancellationToken.None);
-                        reply = PetFlexMessageFactory.BuildStatus(pet);
+                        // Show the actual hunger restored (post-clamp), not the nominal gain.
+                        reply = PetFlexMessageFactory.BuildStatus(
+                            pet,
+                            await RareFoodCountAsync(inventory, userId, ct),
+                            new CareFeedback((int)Math.Round(pet.Hunger - decayedBeforeFeed.Hunger), 0));
                         break;
                     case "action=play":
+                        var decayedBeforePlay = PetGrowthEngine.ApplyDecay(pet, now);
                         var played = PetGrowthEngine.Play(pet, now);
                         await petStore.SaveAsync(played.State, ct);
                         reply = played.Success
-                            ? PetFlexMessageFactory.BuildStatus(played.State)
+                            ? PetFlexMessageFactory.BuildStatus(
+                                played.State,
+                                await RareFoodCountAsync(inventory, userId, ct),
+                                new CareFeedback(0, (int)Math.Round(played.State.Happiness - decayedBeforePlay.Happiness)))
                             : PetFlexMessageFactory.BuildPlayRefused(played.State);
                         break;
                     case "action=status":
                         pet = PetGrowthEngine.Status(pet, now);
                         await petStore.SaveAsync(pet, ct);
-                        reply = PetFlexMessageFactory.BuildStatus(pet);
+                        reply = PetFlexMessageFactory.BuildStatus(pet, await RareFoodCountAsync(inventory, userId, ct));
                         break;
                     default:
                         continue;
@@ -107,5 +116,12 @@ public static class WebhookEndpoints
             // Always 200 quickly: LINE retries non-2xx and times out slow responses.
             return Results.Ok();
         });
+    }
+
+    // Count of the consumable "rare-food" (Golden Kibble) the user currently owns, shown on the card.
+    private static async Task<int> RareFoodCountAsync(IInventoryStore inventory, string userId, CancellationToken ct)
+    {
+        var items = await inventory.GetAsync(userId, ct);
+        return items.Count(i => i.ProductId == "rare-food");
     }
 }
