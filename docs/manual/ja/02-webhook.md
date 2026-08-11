@@ -3,16 +3,16 @@
 # 第2章 — Webhook受信 + 署名検証
 
 **このステップで作るもの:** `POST /webhook` です。生のリクエストボディに対するLINEのHMAC-SHA256署名を
-検証し、ペイロードをパースして、（今はまだ）テキストメッセージをそのままオウム返しします。このオウム
-返し分岐は、[第4章](04-flex-postback.md)で実際の相棒の世話分岐へ置き換えていきます。なぜ最初から本番の
-ロジックを書き下ろさないのか——動作確認済みのオウム返しから始めておけば、あとは一度に一つのことだけを
-デバッグすればよくなるからです。
+検証し、ペイロードをパースして、今はまだテキストメッセージをそのままオウム返しします。このオウム返し
+分岐は、[第4章](04-flex-postback.md)で実際の相棒の世話分岐へ置き換えます。最初から本番のロジックを
+書かないのは、動作確認済みのオウム返しから始めれば、一度に一つのことだけをデバッグすればよくなるから
+です。
 
-**どこに置くか:** 最初から専用ファイル——`Endpoints/WebhookEndpoints.cs`——に置き、`MapWebhookEndpoint()`
-拡張メソッドとして公開します。というのも、Minimal APIでは、ハンドラが些細でなくなってきたら `Program.cs`
-から本格的なハンドラを切り出すことが推奨されているからです。このアプリも最終的にはそうしたハンドラを
-2つ抱えることになります（ここでのwebhookと、[第6章](06-shop.md)のshop）。だとすれば、今のうちから
-最終的な置き場所で組み立てておくほうが、後で移動する手間を避けられて素直です。
+**どこに置くか:** 最初から専用ファイル `Endpoints/WebhookEndpoints.cs` に置き、`MapWebhookEndpoint()`
+拡張メソッドとして公開します。Minimal APIでは、ハンドラが単純でなくなってきたら `Program.cs` から
+切り出すことが推奨されているためです。このアプリも最終的にはこうしたハンドラを2つ持つことになります
+（ここでのwebhookと、[第6章](06-shop.md)のshop）。それなら、今のうちから最終的な置き場所で組み立てて
+おくほうが、後で移動する手間がかかりません。
 
 ## ハンドラ
 
@@ -41,7 +41,7 @@ public static class WebhookEndpoints
             if (parser is null)
                 return Results.Problem("LINE_CHANNEL_SECRET is not configured.", statusCode: 503);
 
-            // The signature is computed over these exact bytes, so read them before any model binding.
+            // 署名はこの生バイト列そのものに対して計算されるので、モデルバインディングの前に読む。
             using var ms = new MemoryStream();
             await request.Body.CopyToAsync(ms, ct);
             var body = ms.ToArray();
@@ -54,7 +54,7 @@ public static class WebhookEndpoints
 
             foreach (var ev in callback.Events ?? new())
             {
-                // Chapter 4 replaces this echo branch with postback dispatch into the pet engine.
+                // 第4章で、このオウム返し分岐を pet エンジンへの postback ディスパッチに置き換える。
                 if (ev is MessageEvent { Message: TextMessageContent text, ReplyToken: { Length: > 0 } replyToken }
                     && messaging is not null)
                 {
@@ -70,47 +70,46 @@ public static class WebhookEndpoints
                 }
             }
 
-            // Always 200 quickly: LINE retries any non-2xx response, which would duplicate deliveries.
+            // 常にすぐ 200 を返す。LINE は非 2xx をリトライするので、そのままだと重複配信を招く。
             return Results.Ok();
         });
     }
 }
 ```
 
-`Program.cs` のヘルスエンドポイントの後に配線します:
+`Program.cs` のヘルスエンドポイントの後に組み込みます:
 
 ```csharp
 app.MapWebhookEndpoint();
 ```
 
 `MapWebhookEndpoint` は `LineCompanionBot.Endpoints` にある拡張メソッドなので、`Program.cs` の冒頭に
-`using LineCompanionBot.Endpoints;` を追加してください——第1章の縮約された `using` ブロックでは、
-まだこれを参照していませんでした。
+`using LineCompanionBot.Endpoints;` を追加してください。第1章の縮約した `using` ブロックでは、まだ
+これを参照していませんでした。
 
-ここで押さえておきたい、そしてこのアプリ全体で繰り返し顔を出すことになるポイントがいくつかあります:
+ここで押さえておきたい、このアプリ全体で繰り返し出てくるポイントがいくつかあります:
 
-- **`parser` と `messaging` の `[FromServices]` は飾りではなく必須です。** 理由はシンプルで、どちらも
-  *条件付きで*登録されるからです（第1章の `HasWebhook` / `HasMessaging` ゲート）。ASP.NET Coreの
-  「これはDIサービスか、それともボディ/ルート値か?」という自動推論は、起動時に登録されているのが
-  見える型しか認識してくれません——条件付きで登録される型は「ボディ」だろうと推測され、そのままでは
-  ルートの構築自体に失敗してしまいます。そこでこの属性でDI解釈を明示的に強制するわけです。（対照的に、
-  後の章で登場する*無条件に*登録されるサービスでは、この属性は正しく省略されています。）
-- **何よりも先に生のバイト列を読む。** というのも、HMACは正確なリクエストボディそのものに対して
-  計算されるからです。フレームワークに先にモデルバインディングをさせてしまうと、ストリームが消費され、
-  手元に残るバイト列が変わってしまいます。
-- **返信が失敗してもログに残すだけで、200は返す。** 返信はときに失敗します——いちばん多いのはリプライ
-  トークンの期限切れ（有効期間は約1分）でしょう。とはいえLINEは非2xx応答をリトライするので、返信失敗を
-  そのまま非2xxに変えてしまうと、今度は重複配信の嵐を招いてしまいます。だからここは例外を捕まえてログに
-  残し、それでも200を返します。
-- **メッセージ POCO には必ず `type` 判別子を設定する** ——`new TextMessage { Type = "text", … }` に注目。
-  これらの生成モデルは `type` を初期値なしで持ち、設定されたときだけシリアライズするため、省くと LINE が
-  ボディを `400` で弾きます。[第4章](04-flex-postback.md)の Flex コンポーネントも同様の対応が必要です
-  （`"flex"`/`"bubble"`/`"box"`/`"text"`）。
+- **`parser` と `messaging` の `[FromServices]` は必須です。** どちらも条件付きで登録される
+  （第1章の `HasWebhook` / `HasMessaging` ゲート）からです。ASP.NET Coreは引数を「DIサービスか、
+  ボディ/ルート値か」を自動で推論しますが、起動時に登録されているのが見える型しか認識しません。
+  条件付きで登録される型は「ボディ」と推測され、そのままではルートの構築自体に失敗します。この属性で
+  DIからの解決を明示するわけです。（後の章で登場する無条件に登録されるサービスでは、この属性を正しく
+  省略しています。）
+- **何よりも先に生のバイト列を読む。** HMACはリクエストボディそのものに対して計算されるからです。
+  フレームワークに先にモデルバインディングをさせると、ストリームが消費され、手元に残るバイト列が
+  変わってしまいます。
+- **返信が失敗してもログに残すだけで、200は返す。** 返信はときに失敗します。多いのはリプライトークンの
+  期限切れ（有効期間は約1分）です。LINEは非2xx応答をリトライするので、返信失敗をそのまま非2xxで返すと
+  重複配信を招きます。そこで例外を捕まえてログに残し、それでも200を返します。
+- **メッセージ POCO には必ず `type` 判別子を設定する。** `new TextMessage { Type = "text", … }` に
+  注目してください。これらの生成モデルは `type` を初期値なしで持ち、設定されたときだけシリアライズ
+  するため、省くと LINE がボディを `400` で弾きます。[第4章](04-flex-postback.md)の Flex コンポーネント
+  も同様の対応が必要です（`"flex"`/`"bubble"`/`"box"`/`"text"`）。
 
 ## 試してみる — LINEチャネル不要
 
-実は、LINEと全く同じ方式でペイロードを自分の手で署名できます。まずはwebhook登録が有効になるよう、
-使い捨てのシークレットをuser-secretsに設定してから、F5で起動しましょう:
+LINEと同じ方式で、ペイロードを自分で署名できます。まずはwebhook登録が有効になるよう、使い捨ての
+シークレットをuser-secretsに設定してから、F5で起動しましょう:
 
 ```powershell
 dotnet user-secrets set LINE_CHANNEL_SECRET "demo-secret" --project src/LineCompanionBot
@@ -133,10 +132,9 @@ Invoke-WebRequest http://localhost:5091/webhook -Method Post -Body $body `
 # -> 401
 ```
 
-正しい署名は受理され、改ざんされた署名は拒否される——このどちらも、LINEチャネル抜きに手元だけで
-確かめられます。ハンドラにブレークポイントを置いて再送してみて、デバッガの下でパースが成功していく
-様子を眺めてみてください。実チャネルをdev tunnel経由で繋ぐ手順のほうは、[第9章](09-end-to-end.md)で
-扱います。
+正しい署名は受理され、改ざんされた署名は拒否されます。どちらもLINEチャネル無しで、手元だけで
+確かめられます。ハンドラにブレークポイントを置いて再送し、デバッガでパースが成功していく様子を
+見てみてください。実チャネルをdev tunnel経由で繋ぐ手順は、[第9章](09-end-to-end.md)で扱います。
 
 > **ヒント:** `GET /` が `webhook: enabled` と報告するようになっているはずです。未設定の状態に戻したく
 > なったら、`dotnet user-secrets remove LINE_CHANNEL_SECRET --project src/LineCompanionBot` を実行してください。
