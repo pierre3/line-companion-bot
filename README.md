@@ -73,12 +73,3 @@ dotnet test
   `Line.OpenApi.MiniApp` exposes no reservation-release call. This is harmless (
   `PurchaseReconciliationService` only ever acts on an `OrderId` that actually reaches
   `purchaseComplete`), just a permanently unused record in the in-memory store.
-
-## Status
-
-Feature-complete per [`docs/manual/en/`](docs/manual/en/README.md) (all 9 chapters), plus a 3-role
-review pass (code/security/test-arch, all CONCERNS-non-blocking) with fixes applied — the review
-findings are folded into the chapters they touch rather than kept as a separate section. Verified
-locally without a live LINE channel: signature verification, postback → Flex reply dispatch, all
-shop endpoints, and the purchase-reconciliation poll/retry loop reaching `api.line.me`. Full end-to-end behavior (chat replies, rich menu rendering, a completed IAP
-purchase) requires wiring a real Messaging API + MINI App channel — see Chapter 9 of the tutorial.

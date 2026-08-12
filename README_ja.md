@@ -2,35 +2,35 @@
 
 # LineCompanionBot
 
-[`Line.OpenApi.*`](https://github.com/pierre3/line-openapi-dotnet) .NET クライアントライブラリ群を
-一気通貫で使いこなす統合サンプルとして作った、バーチャル相棒育成LINE bot × MINI Appショップです。
-ユーザーはLINEチャットでリッチメニューから相棒の世話をし（postback→Flex返信）、MINI Appショップで
-レア餌・スキンをIAP課金購入すると、購入完了がチャットへ通知されます。
+[`Line.OpenApi.*`](https://github.com/pierre3/line-openapi-dotnet) .NET クライアントライブラリ群の
+使い方を一通り示すサンプルアプリです。バーチャル相棒育成 LINE bot と MINI App ショップを組み合わせて
+います。ユーザーはチャットのリッチメニューから相棒の世話をし（postback→Flex 返信）、MINI App
+ショップでレア餌やスキンを IAP 課金で買うと、購入完了がチャットに通知されます。
 
-このアプリをどう組み立てたか——`dotnet new` から一気通貫の動作確認まで、実装ステップごとに1章——を
-追体験できるハンズオンマニュアルが [`docs/manual/ja/`](docs/manual/ja/README.md) にあります。
+このアプリの作り方を `dotnet new` から動作確認まで、実装ステップごとに1章ずつ解説したハンズオン
+マニュアルを [`docs/manual/ja/`](docs/manual/ja/README.md) に用意しています。
 
 ## 必要環境
 
 - .NET 10 SDK
-- LINE Messaging APIチャンネル（Bot用）と LINE MINI Appチャンネル（ショップ用）
-  ——コンソール設定手順はチュートリアル参照。
+- LINE Messaging API チャンネル（Bot 用）と LINE MINI App チャンネル（ショップ用）
+  ——コンソールでの設定手順はチュートリアルを参照。
 
 ## 環境変数
 
 | 変数 | 用途 |
 |---|---|
-| `LINE_CHANNEL_SECRET` | Webhook署名検証 |
-| `LINE_CHANNEL_ACCESS_TOKEN` | Reply/Push/RichMenu/Notifier/IAPポーリング用チャネルトークン |
-| `LINE_MINIAPP_LIFF_ID` | リッチメニューのショップボタンURIAction用LIFF ID |
-| `LINE_MINIAPP_TEMPLATE_NAME` | 審査済みサービスメッセージテンプレート名（未設定ならPushのみ） |
-| `LINE_MINIAPP_POLL_SECONDS` | 購入照合のポーリング間隔（既定30） |
+| `LINE_CHANNEL_SECRET` | Webhook 署名検証 |
+| `LINE_CHANNEL_ACCESS_TOKEN` | Reply/Push/RichMenu/Notifier/IAP ポーリング用チャネルトークン |
+| `LINE_MINIAPP_LIFF_ID` | リッチメニューのショップボタン URIAction 用 LIFF ID |
+| `LINE_MINIAPP_TEMPLATE_NAME` | 審査済みサービスメッセージテンプレート名（未設定なら Push のみ） |
+| `LINE_MINIAPP_POLL_SECONDS` | 購入照合のポーリング間隔（既定 30） |
 
 ## 実行方法
 
 シークレットは開発時 `dotnet user-secrets` から読み込みます（環境変数でも可）。チュートリアルは
-Visual Studio Code（コミット済みの `.vscode/` 設定でF5起動/デバッグ）を前提にしていますが、CLIでも
-動きます:
+Visual Studio Code（`.vscode/` 設定を同梱、F5 で起動/デバッグ）を前提にしていますが、CLI でも
+動きます。
 
 ```powershell
 dotnet user-secrets set LINE_CHANNEL_SECRET       "<チャネルシークレット>"       --project src/LineCompanionBot
@@ -40,11 +40,11 @@ dotnet user-secrets set LINE_CHANNEL_ACCESS_TOKEN "<チャネルアクセスト�
 dotnet run --project src/LineCompanionBot
 ```
 
-リッチメニューはアプリ自身ではなく、`Line.OpenApi.Tools` の CLI（`dotnet tool install -g
+リッチメニューはアプリではなく `Line.OpenApi.Tools` の CLI（`dotnet tool install -g
 Line.OpenApi.Tools`）で一度だけ登録します——チュートリアル第5章を参照してください。
 
-VS Codeのセットアップ、dev tunnelでのWebhook公開手順、MINI AppショップのLINE Developers Console
-設定を含む詳細は [`docs/manual/ja/`](docs/manual/ja/README.md) を参照してください。
+VS Code のセットアップ、dev tunnel での Webhook 公開、MINI App ショップの LINE Developers Console
+設定など、詳しい手順は [`docs/manual/ja/`](docs/manual/ja/README.md) にあります。
 
 ## ビルド・テスト
 
@@ -55,30 +55,17 @@ dotnet test
 
 ## 既知の制約
 
-- `POST /api/shop/reserve`は、自身の帳簿付け（`OrderStore`）のために、クライアントが送ってきた
-  `userId`をそのまま信頼します（`Line.OpenApi.MiniApp`はLIFFアクセストークンからサーバ側で検証
-  する呼び出しを提供していません）。ただし肝心な箇所では緩和されています:
-  `PurchaseReconciliationService`はLINE自身のIAP webhookペイロードが購入を帰属させる`userId`で
-  付与・通知を行い、クライアントが送ってきた値は使いません——つまり呼び出し元が実際の購入の
-  付与・通知先を別のLINEユーザーへ差し替えることはできません。`GET /api/shop/inventory/{userId}`
-  にも本人確認はありません——認証層を一切持たないデモとしては妥当です（LINEの`userId`自体は
-  意味のある秘匿情報ではないため）。
-- `ReserveProductAsync`の`clientIp`導出に使う`X-Forwarded-For`ヘッダは、信頼できるプロキシの
-  許可リストに対して検証されていないため、直接の呼び出し元が任意の値を設定できます。検証済みの
-  クライアントIPではなく、ベストエフォートの不正利用対策シグナルとして扱ってください。
-- クライアント側の`liff.iap.createPayment()`が`reserve`成功後にキャンセル/失敗した場合、
-  `IOrderStore`のエントリとLINE側の予約注文は解放されないままになります——`Line.OpenApi.MiniApp`
-  に予約解放APIが無いためです。実害はありません（`PurchaseReconciliationService`は実際に
-  `purchaseComplete`まで到達した`OrderId`にしか反応しないため）が、インメモリストアには
-  使われないレコードが残り続けます。
-
-## ステータス
-
-[`docs/manual/ja/`](docs/manual/ja/README.md) の全9章に沿って機能完成、さらに3役レビュー
-（code/security/test-arch、いずれもCONCERNS非ブロッキング）を実施し指摘を反映済み——レビューの
-指摘は末尾に別節としてまとめず、該当する各章に畳み込んでいます。実LINEチャネル無しでローカル確認済み:
-署名検証、postback→Flex
-応答分岐、ショップの全エンドポイント、購入照合のポーリング/リトライループが
-`api.line.me`へ到達すること。エンドツーエンドの完全な動作（チャット返信・リッチメニュー表示・
-実際のIAP購入完了）には実Messaging API + MINI Appチャネルの接続が必要です——チュートリアル
-第9章参照。
+- `POST /api/shop/reserve` は、自身の記録（`OrderStore`）用にクライアントから送られてきた `userId`
+  をそのまま信頼します（`Line.OpenApi.MiniApp` に LIFF アクセストークンをサーバ側で検証する API が
+  ないため）。ただし肝心な部分は守られています。`PurchaseReconciliationService` は、付与と通知を
+  LINE の IAP webhook が示す `userId` で行い、クライアントから送られてきた値は使いません。つまり
+  呼び出し元が、実際の購入の付与・通知先を別の LINE ユーザーにすり替えることはできません。
+  `GET /api/shop/inventory/{userId}` にも本人確認はありませんが、認証を持たないデモとしては許容範囲
+  です（LINE の `userId` はそもそも秘匿すべき情報ではありません）。
+- `ReserveProductAsync` の `clientIp` を求めるのに使う `X-Forwarded-For` ヘッダは、信頼できるプロキシ
+  の許可リストと照合していないため、直接の呼び出し元が任意の値を入れられます。検証済みのクライアント
+  IP ではなく、あくまで簡易的な不正対策の目安として扱ってください。
+- クライアント側の `liff.iap.createPayment()` が `reserve` 成功後にキャンセル/失敗すると、
+  `IOrderStore` のエントリと LINE 側の予約注文が解放されずに残ります（`Line.OpenApi.MiniApp` に予約
+  解放 API がないため）。ただし実害はなく（`PurchaseReconciliationService` は `purchaseComplete` まで
+  到達した `OrderId` にしか反応しません）、インメモリストアに使われないレコードが残るだけです。
