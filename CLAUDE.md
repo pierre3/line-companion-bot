@@ -30,7 +30,7 @@ MINI Appショップでレア餌・スキンをIAP課金購入すると、購入
 
 - **TFM:** `net10.0` 単一（`Nullable=enable`）。消費先ライブラリの制約に合わせる。
 - **参照パッケージ:** `Line.OpenApi.Messaging` / `Line.OpenApi.Messaging.Webhook` /
-  `Line.OpenApi.MiniApp`（version `0.2.0-preview`）。`Line.OpenApi.Liff` は参照しない
+  `Line.OpenApi.MiniApp`（version `1.0.0`）。`Line.OpenApi.Liff` は参照しない
   （呼ばない依存を足さない）。
 - **状態管理:** デフォルト実装はすべてインメモリ（`ConcurrentDictionary`）。ただし
   `src/LineCompanionBot/Persistence/`配下の`I*Store`インターフェース（`IPetStore`/`IOrderStore`/

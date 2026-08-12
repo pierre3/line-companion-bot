@@ -10,9 +10,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Line.OpenApi.Messaging" Version="0.2.0-preview" />
-    <PackageReference Include="Line.OpenApi.Messaging.Webhook" Version="0.2.0-preview" />
-    <PackageReference Include="Line.OpenApi.MiniApp" Version="0.2.0-preview" />
+    <PackageReference Include="Line.OpenApi.Messaging" Version="1.0.0" />
+    <PackageReference Include="Line.OpenApi.Messaging.Webhook" Version="1.0.0" />
+    <PackageReference Include="Line.OpenApi.MiniApp" Version="1.0.0" />
   </ItemGroup>
 
 </Project>

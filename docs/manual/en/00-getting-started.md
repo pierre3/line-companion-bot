@@ -61,9 +61,9 @@ a real consumer would use them (this repo is deliberately independent of the lib
 tree):
 
 ```powershell
-dotnet add src/LineCompanionBot package Line.OpenApi.Messaging --version 0.2.0-preview
-dotnet add src/LineCompanionBot package Line.OpenApi.Messaging.Webhook --version 0.2.0-preview
-dotnet add src/LineCompanionBot package Line.OpenApi.MiniApp --version 0.2.0-preview
+dotnet add src/LineCompanionBot package Line.OpenApi.Messaging --version 1.0.0
+dotnet add src/LineCompanionBot package Line.OpenApi.Messaging.Webhook --version 1.0.0
+dotnet add src/LineCompanionBot package Line.OpenApi.MiniApp --version 1.0.0
 ```
 
 `Line.OpenApi.Liff` is intentionally *not* referenced — this app never calls it, and a dependency

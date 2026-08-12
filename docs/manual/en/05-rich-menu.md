@@ -15,7 +15,7 @@ the default, list or delete. We register the menu with it, so this step needs no
 `Line.OpenApi.Tools` is a .NET global tool (command name `line`) that doubles as an MCP server:
 
 ```powershell
-dotnet tool install -g Line.OpenApi.Tools --version 0.2.0-preview
+dotnet tool install -g Line.OpenApi.Tools --version 1.0.0
 ```
 
 `line --help` should now list the command groups (`richmenu`, `config`, …). (If you have the

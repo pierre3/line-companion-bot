@@ -134,9 +134,9 @@ dotnet add tests/LineCompanionBot.Tests reference src/LineCompanionBot
 今回は `Line.OpenApi.*` のうち、下記の3つを使います:
 
 ```powershell
-dotnet add src/LineCompanionBot package Line.OpenApi.Messaging --version 0.2.0-preview
-dotnet add src/LineCompanionBot package Line.OpenApi.Messaging.Webhook --version 0.2.0-preview
-dotnet add src/LineCompanionBot package Line.OpenApi.MiniApp --version 0.2.0-preview
+dotnet add src/LineCompanionBot package Line.OpenApi.Messaging --version 1.0.0
+dotnet add src/LineCompanionBot package Line.OpenApi.Messaging.Webhook --version 1.0.0
+dotnet add src/LineCompanionBot package Line.OpenApi.MiniApp --version 1.0.0
 ```
 
 ## VS Codeで開いて実行・デバッグを設定する

@@ -15,7 +15,7 @@ postback 文字列（`"action=feed"` 等）を、ユーザーが実際に指で�
 `Line.OpenApi.Tools` は .NET グローバルツール（コマンド名 `line`）であり、同時に MCP サーバでもあります:
 
 ```powershell
-dotnet tool install -g Line.OpenApi.Tools --version 0.2.0-preview
+dotnet tool install -g Line.OpenApi.Tools --version 1.0.0
 ```
 
 `line --help` でコマンドグループ（`richmenu`、`config` …）が並べば成功です。（`line-dotnet` のソースを
