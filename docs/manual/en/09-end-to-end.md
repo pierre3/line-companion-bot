@@ -11,13 +11,21 @@ what tends to go wrong.
 
 1. **Create a Messaging API channel** in the
    [LINE Developers Console](https://developers.line.biz/console/). Note its **channel secret** and
-   issue a **channel access token**.
+   issue a **channel access token** (the `line webhook` and `line richmenu` commands below use this
+   token).
 2. **Create a LINE MINI App channel** under the same provider. This is a distinct product from a
    regular LIFF app and has its own review / trial-user flow — add yourself as a **trial user** so
-   you can test without full review. Note the **LIFF ID** it assigns.
+   you can test without full review. Note the **LIFF ID** it assigns, and issue a **channel access
+   token** for this channel too — the LIFF app that backs the MINI App lives under *this* channel, so
+   the `line liff` commands below need its token, not the Messaging channel's.
 3. Getting this order wrong (trying to register a MINI App channel before understanding it needs its
    own provider setup, distinct from the Messaging API channel) is the most likely real-world
    stumbling block here — more so than anything in the code.
+
+You do **not** set any endpoint URLs in the console anymore. Both LINE-side URLs — the Messaging
+channel's **Webhook URL** and the MINI App's **endpoint URL** — are set from the `line` tool once you
+have a dev tunnel, in "Bringing it up" below. The only thing that still requires a console click is
+the one-time **Use webhook** toggle (noted there).
 
 ## Put the secrets in user-secrets
 
@@ -33,31 +41,69 @@ dotnet user-secrets set LINE_MINIAPP_LIFF_ID      "<liff id>"              --pro
 
 `BuildCompanionConfiguration` reads user-secrets only in the `Development` environment, which the F5
 launch config sets (`ASPNETCORE_ENVIRONMENT=Development`), so the app picks these up. (The `line`
-tool below reads the channel access token from an env var / `--channel-token` / a `line config`
-profile — not from user-secrets.)
+tool below reads channel access tokens from an env var / `--channel-token` / a `line config`
+profile — not from user-secrets — and it needs *two* of them: the Messaging channel token for the
+webhook/rich-menu commands and the MINI App channel token for the LIFF command. The app itself only
+stores the one `LINE_CHANNEL_ACCESS_TOKEN`; the MINI App token is passed to `line liff` directly.)
 
 ## Bringing it up
 
-1. **Create and set the rich menu once** with the `line` tool ([Chapter 5](05-rich-menu.md)). Edit
-   `YOUR_LIFF_ID` in `richmenu.json` to your LIFF id first, give the tool the token (it doesn't read
-   user-secrets), then run the three steps — `create` prints the id you pass to the next two:
+The rich menu is a one-time registration; pointing LINE at your app is a handful of `line` commands
+you re-run each time the tunnel URL changes — no console round-trip.
 
-   ```powershell
-   $env:LINE_CHANNEL_ACCESS_TOKEN = "<channel access token>"
-   line richmenu create --file src/LineCompanionBot/assets/richmenu.json   # prints the new id
-   line richmenu image  <richMenuId> --file src/LineCompanionBot/assets/richmenu.png
-   line richmenu set-default <richMenuId>
-   ```
-2. **Start the app:** press **F5**.
-3. **Expose it with a dev tunnel** so LINE can reach your webhook:
+### One-time — register the rich menu
+
+**Create and set the rich menu once** with the `line` tool ([Chapter 5](05-rich-menu.md)). Edit
+`YOUR_LIFF_ID` in `richmenu.json` to your LIFF id first — that `https://liff.line.me/<LIFF_ID>` URL is
+*permanent* (it redirects to whatever the LIFF app's endpoint currently is), so the menu never needs
+touching when the tunnel changes. Give the tool the **Messaging** channel token (it doesn't read
+user-secrets), then run the three steps — `create` prints the id you pass to the next two:
+
+```powershell
+$env:LINE_CHANNEL_ACCESS_TOKEN = "<messaging channel access token>"
+line richmenu create --file src/LineCompanionBot/assets/richmenu.json   # prints the new id
+line richmenu image  <richMenuId> --file src/LineCompanionBot/assets/richmenu.png
+line richmenu set-default <richMenuId>
+```
+
+### Start the app and open a tunnel
+
+1. **Start the app:** press **F5**.
+2. **Expose it with a dev tunnel** so LINE can reach both your webhook and the shop page:
 
    ```powershell
    devtunnel user login       # first time only
    devtunnel host -p 5091 --allow-anonymous
    ```
 
-4. Set the forwarded HTTPS URL + `/webhook` as the channel's **Webhook URL** in the console, turn
-   **Use webhook** on, and click **Verify**.
+   Note the forwarded HTTPS base URL it prints — called `https://<tunnel>` below.
+
+### Point LINE at the tunnel — entirely from the CLI
+
+The `line` tool sets both LINE-side URLs, so there's no console visit here. Two things to keep
+straight: they live on **different channels** (so each command needs *that* channel's access token),
+and the paths differ — the webhook is `/webhook`, the MINI App (LIFF) endpoint is `/shop/`.
+
+```powershell
+# 1. Webhook URL — Messaging channel token. (devtunnel blocks its terminal, and on a repeat
+#    session you skip the one-time rich-menu step, so set it here rather than assume it carries over.)
+$env:LINE_CHANNEL_ACCESS_TOKEN = "<messaging channel access token>"
+line webhook set-endpoint --url https://<tunnel>/webhook
+line webhook test-endpoint          # LINE probes the endpoint and reports reachability — replaces the console "Verify"
+
+# 2. MINI App endpoint — the LIFF app is under the MINI App channel, so pass *its* token.
+line liff list        --channel-token "<mini app channel access token>"   # find the liffId
+line liff update-url <liffId> --url https://<tunnel>/shop/ --channel-token "<mini app channel access token>"
+```
+
+> **"Use webhook" is a one-time console toggle.** `set-endpoint` sets the URL but does not flip the
+> channel's *Use webhook* switch — the Messaging API doesn't expose it. Run `line webhook get-endpoint`;
+> if it reports `active: false`, turn **Use webhook** on once in the console. That's the only console
+> click left, and you only do it once per channel — every later session is just the two commands above
+> against the new tunnel URL.
+
+Each time you restart the tunnel the forwarded URL changes, so re-run `webhook set-endpoint` and
+`liff update-url` with the new host. Two commands, no console.
 
 ## Trying the full loop
 
@@ -201,12 +247,18 @@ curl -X POST http://localhost:5091/api/shop/dev/complete-purchase `
 - **Rich menu doesn't appear / tapping does nothing.** Confirm `line richmenu set-default` succeeded
   (`line richmenu get-default` should return the id). Check `GET /` reports `messaging: enabled`.
 - **401 on `/webhook`.** `LINE_CHANNEL_SECRET` doesn't match the channel's.
+- **Webhook events never arrive.** `line webhook get-endpoint` should show your *current* tunnel URL
+  with `active: true`, and `line webhook test-endpoint` should report `success: true`. A stale URL
+  from a previous tunnel session (you forgot to re-run `set-endpoint`) or `active: false` (the
+  one-time **Use webhook** toggle is still off) are the usual causes.
 - **Feed/Play/Status does nothing.** Check logs for "Failed to reply to a postback event" — usually
   an expired reply token (valid ~1 min) from testing too slowly, or a missing/invalid access token.
 - **Shop button opens a blank page (or does nothing).** You created the rich menu with
-  `YOUR_LIFF_ID` still unreplaced in `richmenu.json`, or `LINE_MINIAPP_LIFF_ID` is wrong, or the
-  MINI App channel's endpoint URL isn't pointed at this app's `/shop/` path — all console/config
-  issues, not code. (Re-run `line richmenu create`/`image`/`set-default` after fixing the URL.)
+  `YOUR_LIFF_ID` still unreplaced in `richmenu.json`, or `LINE_MINIAPP_LIFF_ID` is wrong, or the LIFF
+  app's endpoint URL isn't pointed at this app's `/shop/` path. Check the current URL with
+  `line liff list` and repoint it with `line liff update-url <liffId> --url https://<tunnel>/shop/`
+  (both need the **MINI App** channel token) — a stale tunnel URL from a previous session is the
+  usual cause. If you changed `YOUR_LIFF_ID` itself, re-run `line richmenu create`/`image`/`set-default`.
 - **Purchase completes but no chat message.** Expected to take up to `LINE_MINIAPP_POLL_SECONDS` —
   there's no instant push. If it never arrives, check for `PurchaseReconciliationService` warnings
   (an invalid/expired token is the usual cause).
