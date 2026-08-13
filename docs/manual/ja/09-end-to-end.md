@@ -11,14 +11,22 @@
 
 1. **Messaging APIチャネルを作成する。**
    [LINE Developers Console](https://developers.line.biz/console/) で作成し、**channel secret** を
-   控えたうえで、**channel access token** を発行します。
+   控えたうえで、**channel access token** を発行します（後述の `line webhook` / `line richmenu`
+   コマンドはこのトークンを使います）。
 2. **LINE MINI Appチャネルを作成する。** 同じプロバイダーの下に作成します。これは通常のLIFFアプリ
    とは別個のプロダクトで、独自の審査 / トライアルユーザーのフローを持っています。full review なしで
    テストできるよう、自分自身を **trial user** として追加しておいてください。割り当てられた
-   **LIFF ID** を控えます。
+   **LIFF ID** を控え、**このチャネルの channel access token も** 発行しておきます。MINI App を支える
+   LIFF アプリは *この* チャネルの配下にあるため、後述の `line liff` コマンドは Messaging チャネルでは
+   なく、このトークンを必要とします。
 3. 実はこの順序を取り違えること、つまりMINI Appチャネルが、Messaging APIチャネルとは別個の独自
    プロバイダー設定を必要とする点を理解する前に登録しようとしてしまうことが、ここでいちばん起こり
    やすい現実のつまずきどころです。コードの中のどんな落とし穴よりも、です。
+
+エンドポイントURLをコンソールで設定する作業は、もう **ありません**。LINE側の2つのURL——Messaging
+チャネルの **Webhook URL** と MINI App の **エンドポイントURL**——はどちらも、dev tunnel を用意した後に
+下の「立ち上げる」で `line` ツールから設定します。コンソールでのクリックが残るのは、一度きりの
+**Use webhook** トグルだけです（そこで触れます）。
 
 ## シークレットを user-secrets に入れる
 
@@ -36,30 +44,69 @@ dotnet user-secrets set LINE_MINIAPP_LIFF_ID      "<liff id>"              --pro
 `BuildCompanionConfiguration` が user-secrets を読むのは `Development` 環境のときだけで、F5の起動構成が
 `ASPNETCORE_ENVIRONMENT=Development` を設定するので、アプリはこれらを拾います。（下記の `line` ツールは
 user-secrets ではなく、環境変数 / `--channel-token` / `line config` プロファイルからチャネルアクセス
-トークンを読みます。）
+トークンを読みます。しかも *2つ* 必要です。webhook / リッチメニューのコマンドには Messaging チャネルの
+トークン、LIFF のコマンドには MINI App チャネルのトークンです。アプリ自体が保持するのは
+`LINE_CHANNEL_ACCESS_TOKEN` の1つだけで、MINI App のトークンは `line liff` に直接渡します。）
 
 ## 立ち上げる
 
-1. **リッチメニューを一度だけ作成・設定する:** `line` ツールを使います（[第5章](05-rich-menu.md)）。
-   先に `richmenu.json` の `YOUR_LIFF_ID` を自分の LIFF id へ置き換え、ツールにトークンを渡し
-   （user-secrets は読みません）、3ステップを実行します。`create` が出力する id を次の2つに渡します:
+リッチメニューの登録は一度きり。LINEをアプリに向ける作業は、トンネルURLが変わるたびに `line`
+コマンドを数本流すだけで、コンソールの往復はありません。
 
-   ```powershell
-   $env:LINE_CHANNEL_ACCESS_TOKEN = "<channel access token>"
-   line richmenu create --file src/LineCompanionBot/assets/richmenu.json   # 新しい id が出力される
-   line richmenu image  <richMenuId> --file src/LineCompanionBot/assets/richmenu.png
-   line richmenu set-default <richMenuId>
-   ```
-2. **アプリを起動する:** **F5** を押すだけです。
-3. **devトンネルで公開する:** LINEがこちらのwebhookに到達できるようにするためです:
+### 一度きり — リッチメニューを登録する
+
+**リッチメニューを一度だけ作成・設定します**（[第5章](05-rich-menu.md)）。先に `richmenu.json` の
+`YOUR_LIFF_ID` を自分の LIFF id へ置き換えます。この `https://liff.line.me/<LIFF_ID>` というURLは
+*恒久的*で（LIFFアプリの現在のエンドポイントへリダイレクトします）、トンネルが変わってもメニュー側は
+一切触る必要がありません。ツールには **Messaging** チャネルのトークンを渡し（user-secrets は
+読みません）、3ステップを実行します。`create` が出力する id を次の2つに渡します:
+
+```powershell
+$env:LINE_CHANNEL_ACCESS_TOKEN = "<messaging channel access token>"
+line richmenu create --file src/LineCompanionBot/assets/richmenu.json   # 新しい id が出力される
+line richmenu image  <richMenuId> --file src/LineCompanionBot/assets/richmenu.png
+line richmenu set-default <richMenuId>
+```
+
+### アプリを起動してトンネルを開く
+
+1. **アプリを起動する:** **F5** を押すだけです。
+2. **devトンネルで公開する:** LINEがこちらのwebhookとショップページの両方に到達できるようにします:
 
    ```powershell
    devtunnel user login       # 初回のみ
    devtunnel host -p 5091 --allow-anonymous
    ```
 
-4. 転送されたHTTPS URL に `/webhook` を足したものを、コンソールでチャネルの **Webhook URL** に設定し、
-   **Use webhook** をオンにしたうえで、**Verify** をクリックします。
+   出力される転送先のHTTPSベースURLを控えます（以下では `https://<tunnel>` と表記します）。
+
+### LINEをトンネルに向ける — すべてCLIで
+
+`line` ツールがLINE側の2つのURLを両方とも設定するので、ここでコンソールを開く必要はありません。
+注意点は2つ。両者は **別々のチャネル** に属するため各コマンドには *そのチャネルの* アクセストークンが
+必要なこと、そしてパスが違うこと——webhook は `/webhook`、MINI App（LIFF）のエンドポイントは
+`/shop/` です。
+
+```powershell
+# 1. Webhook URL — Messaging チャネルのトークン。（devtunnel は端末を占有し、再セッションでは
+#    一度きりのリッチメニュー手順を飛ばすので、引き継がれている前提にせずここでセットする。）
+$env:LINE_CHANNEL_ACCESS_TOKEN = "<messaging channel access token>"
+line webhook set-endpoint --url https://<tunnel>/webhook
+line webhook test-endpoint          # LINE がエンドポイントを叩いて到達性を報告。コンソールの「Verify」の代わり
+
+# 2. MINI App エンドポイント — LIFF アプリは MINI App チャネル配下なので *そのチャネルの* トークンを渡す。
+line liff list        --channel-token "<mini app channel access token>"   # liffId を調べる
+line liff update-url <liffId> --url https://<tunnel>/shop/ --channel-token "<mini app channel access token>"
+```
+
+> **「Use webhook」は一度きりのコンソール操作です。** `set-endpoint` はURLを設定しますが、チャネルの
+> *Use webhook* スイッチは切り替えません（Messaging API が公開していないためです）。`line webhook
+> get-endpoint` を実行し、`active: false` と出たら、コンソールで **Use webhook** を一度だけオンに
+> します。残っているコンソール操作はこれだけで、しかもチャネルごとに一度きり。以降のセッションは、
+> 新しいトンネルURLに対して上の2コマンドを流すだけです。
+
+トンネルを再起動するたびに転送先URLは変わるので、`webhook set-endpoint` と `liff update-url` を新しい
+ホストで流し直します。2コマンドで済み、コンソールは不要です。
 
 ## フルループを試す
 
@@ -204,13 +251,19 @@ curl -X POST http://localhost:5091/api/shop/dev/complete-purchase `
   していること（`line richmenu get-default` が id を返すこと）を確かめてください。そのうえで `GET /` が
   `messaging: enabled` を報告しているかも見ておきます。
 - **`/webhook` で401。** これは `LINE_CHANNEL_SECRET` がチャネルのものと一致していないサインです。
+- **Webhookイベントが一向に届かない。** `line webhook get-endpoint` が *現在の* トンネルURLを
+  `active: true` で表示し、`line webhook test-endpoint` が `success: true` を返すはずです。前回の
+  トンネルセッションの古いURL（`set-endpoint` のやり直し忘れ）か、`active: false`（一度きりの
+  **Use webhook** トグルがまだオフ）が、たいていの原因です。
 - **Feed/Play/Status が何もしない。** ログに "Failed to reply to a postback event" が出ていないか
   確認します。たいていは、テストがもたついて期限切れになったreplyトークン（有効期間は約1分です）か、
   欠落した/無効なアクセストークンが原因です。
 - **Shopボタンが空白ページを開く / 反応しない。** `richmenu.json` の `YOUR_LIFF_ID` を置換しないまま
-  メニューを作成したか、`LINE_MINIAPP_LIFF_ID` が間違っているか、MINI AppチャネルのエンドポイントURLが
-  このアプリの `/shop/` パスを向いていないかのいずれかです。いずれもコードではなく、コンソール/設定の
-  問題です。（URLを直したら `line richmenu create`/`image`/`set-default` をやり直します。）
+  メニューを作成したか、`LINE_MINIAPP_LIFF_ID` が間違っているか、LIFFアプリのエンドポイントURLが
+  このアプリの `/shop/` パスを向いていないかのいずれかです。現在のURLは `line liff list` で確認し、
+  `line liff update-url <liffId> --url https://<tunnel>/shop/` で向け直します（どちらも **MINI App**
+  チャネルのトークンが必要です）。前回セッションの古いトンネルURLが、たいていの原因です。
+  `YOUR_LIFF_ID` 自体を変えた場合は、`line richmenu create`/`image`/`set-default` をやり直します。
 - **購入は完了するのにチャットメッセージが来ない。** 最大で `LINE_MINIAPP_POLL_SECONDS` ほどかかるのが
   想定どおりの挙動です。即時pushは無いのでした。それでも一向に届かないようなら、
   `PurchaseReconciliationService` のwarningを確認してください（無効/期限切れのトークンが、たいていの
